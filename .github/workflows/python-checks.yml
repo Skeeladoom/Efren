@@ -1,0 +1,19 @@
+name: Python checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntax check
+        run: python -m compileall -q assistant_identity.py gigaam_local.py lite_policy.py lite_runtime.py main.py memory.py panel_backend.py panel_features.py router.py tools.py tts.py voice.py
+      - name: Unit tests
+        run: python -m unittest discover -s distribution -p 'test_*.py' -q
