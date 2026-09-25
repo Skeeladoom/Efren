@@ -1,0 +1,49 @@
+# Local Python/runtime environments and downloaded dependencies
+runtime/
+rvc_env/
+tool_cache/
+__pycache__/
+*.py[cod]
+*.pyd
+
+# Large/private models and generated audio
+rvc_models/
+tts_models/
+models/
+*.pth
+*.onnx
+*.ckpt
+*.bin
+*.wav
+*.mp3
+
+# Logs, recordings, screenshots and local state
+logs/
+screenshots/
+memory.json
+*.log
+*.pid
+lite-auth.json
+assistant_names.json
+jarvis_settings.json
+panel_theme.json
+member_permissions.json
+
+# Build/staging output
+distribution/staging-*/
+panel-wpf/bin/
+panel-wpf/obj/
+*.exe
+*.msi
+*.zip
+
+# Editor/OS files
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+
+# Local secrets/config overrides
+.env
+*.secret
+secrets.json
