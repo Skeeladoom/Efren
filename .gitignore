@@ -31,6 +31,8 @@ member_permissions.json
 
 # Build/staging output
 distribution/staging-*/
+distribution/release-*/
+distribution/*.zip
 panel-wpf/bin/
 panel-wpf/obj/
 *.exe
