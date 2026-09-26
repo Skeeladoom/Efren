@@ -59,7 +59,9 @@ def jarvis_voice_status(root):
     except (OSError, ValueError, TypeError):
         pass
     device = str(config.get("rvc_device", "cpu")).lower()
-    mode = "видеоядро / DirectML" if device == "directml" else "CPU, " + str(config.get("rvc_cpu_threads", 4)) + " потока"
+    mode = ("Nvidia CUDA" if device == "cuda" else
+            "видеоядро / DirectML" if device == "directml" else
+            "CPU, " + str(config.get("rvc_cpu_threads", 4)) + " потока")
     return "Голос: «" + name + "» · " + mode
 
 
