@@ -330,6 +330,7 @@ namespace Efren.Panel
                 if (value != null) { Find<TextBox>("TrainingWrong").Text = value.Wrong; Find<TextBox>("TrainingCorrect").Text = value.Correct; }
             };
             Find<Button>("Macros").Click += delegate { OpenNative("macros", "Конструктор сценариев"); };
+            Find<Button>("CommandList").Click += delegate { OpenNative("commands", "Мои голосовые команды"); };
             Bind("Chat", "window", "window", "chat");
             Bind("Legacy", "window", "window", "legacy"); Bind("Project", "project");
             Find<Button>("Diagnostics").Click += async delegate {
@@ -859,6 +860,7 @@ namespace Efren.Panel
             if (!nativePages.ContainsKey(key)) {
                 if (key == "members") nativePages[key] = new MembersPage(backend);
                 else if (key == "macros") nativePages[key] = new MacrosPage(backend, root);
+                else if (key == "commands") nativePages[key] = new CommandsPage(backend);
                 else nativePages[key] = new JournalPage(backend, key, delegate {
                     Navigate("SettingsPage", "Настройки", "Изменения сохраняются сразу");
                     Find<TextBlock>("RepliesTitle").BringIntoView();

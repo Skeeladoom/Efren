@@ -70,7 +70,8 @@ namespace Efren.Panel
             top.Children.Add(search); search.MaxLength = 400;
             var filters = new WrapPanel(); top.Children.Add(filters); period.SelectedIndex = 1;
             filters.Children.Add(period);
-            if (source == "friday") { filters.Children.Add(person); filters.Children.Add(kind); }
+            if (source == "friday") filters.Children.Add(person);
+            filters.Children.Add(kind);
             filters.Children.Add(PageUI.Button("Найти", async delegate { live = false; output.Select(0, 0); await Read(false); }));
             filters.Children.Add(PageUI.Button("Живой журнал", async delegate { live = true; search.Clear(); output.Select(0, 0); await Read(false); }));
             filters.Children.Add(PageUI.Button("Скопировать контекст", async delegate { await Read(true); }));
@@ -158,6 +159,59 @@ namespace Efren.Panel
                 status.Text = (live ? "Живой журнал · " : "Найдено: " + data["count"] + " · ") + "Показано: " + data["shown"] + " · " + data["path"];
             } catch (Exception ex) { status.Text = "Ошибка чтения: " + ex.Message; }
             finally { busy = false; }
+        }
+    }
+
+    sealed class CommandsPage : UserControl
+    {
+        readonly Backend backend;
+        readonly StackPanel rows = new StackPanel();
+        readonly TextBlock status = PageUI.Text("Загрузка…", true);
+        bool busy;
+        public CommandsPage(Backend backend)
+        {
+            this.backend = backend;
+            var body = new DockPanel(); Content = body;
+            var top = new StackPanel(); DockPanel.SetDock(top, Dock.Top); body.Children.Add(top);
+            top.Children.Add(PageUI.Text("Здесь показаны настоящие голосовые привязки помощника. Отключение сохраняет сценарий; удаление убирает только голосовую фразу и не удаляет файл .jmacro.", true));
+            top.Children.Add(PageUI.Button("Обновить список", Load)); top.Children.Add(status);
+            body.Children.Add(new ScrollViewer { Content = rows, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+            IsVisibleChanged += async delegate { if (IsVisible) await Load(); };
+        }
+        public Task RefreshPage() { return Load(); }
+        async Task Load()
+        {
+            if (busy) return; busy = true;
+            try
+            {
+                var data = (Dictionary<string, object>)await backend.Call("macros", "operation", "registry");
+                rows.Children.Clear(); int count = 0;
+                foreach (var command in PageUI.Array(data["commands"]).Cast<Dictionary<string, object>>())
+                {
+                    count++;
+                    string phrase = PageUI.Str(command, "phrase"), path = PageUI.Str(command, "path");
+                    bool enabled = PageUI.Flag(command, "enabled"), exists = PageUI.Flag(command, "exists");
+                    var card = new Border { Padding = new Thickness(14), Margin = new Thickness(0, 0, 0, 10), CornerRadius = new CornerRadius(10) };
+                    card.SetResourceReference(Border.BackgroundProperty, "ThemeCard"); rows.Children.Add(card);
+                    var content = new StackPanel(); card.Child = content;
+                    content.Children.Add(PageUI.Text("«" + phrase + "»"));
+                    content.Children.Add(PageUI.Text((exists ? path : "Файл сценария не найден: " + path), true));
+                    var buttons = new WrapPanel(); content.Children.Add(buttons);
+                    buttons.Children.Add(PageUI.Button(enabled ? "Отключить" : "Включить", async delegate { await Change("registry_toggle", phrase); }));
+                    buttons.Children.Add(PageUI.Button("Удалить привязку", async delegate {
+                        if (MessageBox.Show(Window.GetWindow(this), "Убрать голосовую фразу «" + phrase + "»? Файл сценария останется.", "Удаление команды", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes)
+                            await Change("registry_delete", phrase);
+                    }));
+                }
+                status.Text = count == 0 ? "Голосовых команд пока нет. Создайте первую команду в конструкторе." : "Команд: " + count;
+            }
+            catch (Exception ex) { status.Text = "Не удалось прочитать команды: " + ex.Message; }
+            finally { busy = false; }
+        }
+        async Task Change(string operation, string phrase)
+        {
+            await backend.Call("macros", "operation", operation, "phrase", phrase);
+            busy = false; await Load();
         }
     }
 

@@ -12,6 +12,7 @@ from discord_tools import parse_discord_voice_command
 
 ROUTER_CODE_VERSION = "JARVIS-ROUTER-v0.9.2-JARVIS-WORD-VARIANTS"
 MACRO_PHRASES_FILE = Path(__file__).resolve().parent / "macro_phrases.json"
+MACRO_DISABLED_FILE = Path(__file__).resolve().parent / "macro_disabled.json"
 
 
 @dataclass
@@ -1010,6 +1011,12 @@ class LocalRouter:
         if not isinstance(registry, dict):
             return None
         wanted = " ".join(str(text or "").casefold().replace("ё", "е").split())
+        try:
+            disabled = json.loads(MACRO_DISABLED_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            disabled = []
+        if wanted in disabled:
+            return None
         scenario = registry.get(wanted)
         if not scenario:
             return None

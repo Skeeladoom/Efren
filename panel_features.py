@@ -47,6 +47,10 @@ def read_logs(request):
             if not isinstance(event, dict): continue
             if not live and not logs.event_is_recent(event, logs.cutoff_for(spec["period"])): continue
             kind = str(event.get("type", "event")).upper()
+            selected_kind = str(spec.get("kind", ""))
+            if "Команды" in selected_kind and not (event.get("accepted") is True or kind in {"RESULT", "COMMAND_RESULT"}): continue
+            if "Ошибки" in selected_kind and kind not in {"ERROR", "EXCEPTION"} and not event.get("error"): continue
+            if "Обычный" in selected_kind and (event.get("accepted") is True or kind in {"RESULT", "COMMAND_RESULT", "ERROR", "EXCEPTION"}): continue
             details = []
             for key in ("text", "wake", "command", "result", "error", "device", "model", "samplerate", "blocksize", "stt"):
                 value = event.get(key)
@@ -97,6 +101,26 @@ def atomic_json(path, value):
 def macros(request):
     import macro_runner as macro  # No model is loaded; import only when opening the constructor.
     operation = request.get("operation")
+    disabled_path = panel.BASE_DIR / "macro_disabled.json"
+    if operation in {"registry", "registry_toggle", "registry_delete"}:
+        registry = json.loads(macro.PHRASES_FILE.read_text(encoding="utf-8")) if macro.PHRASES_FILE.exists() else {}
+        disabled = json.loads(disabled_path.read_text(encoding="utf-8")) if disabled_path.exists() else []
+        if not isinstance(registry, dict) or not isinstance(disabled, list):
+            raise ValueError("Повреждён список голосовых команд")
+        phrase = str(request.get("phrase", "")).strip()
+        if operation == "registry_toggle":
+            if phrase not in registry: raise ValueError("Команда больше не найдена")
+            if phrase in disabled: disabled.remove(phrase)
+            else: disabled.append(phrase)
+            atomic_json(disabled_path, sorted(set(disabled)))
+        elif operation == "registry_delete":
+            if phrase not in registry: raise ValueError("Команда больше не найдена")
+            del registry[phrase]
+            atomic_json(macro.PHRASES_FILE, registry)
+            if phrase in disabled:
+                disabled.remove(phrase); atomic_json(disabled_path, disabled)
+        return {"commands": [{"phrase": key, "path": str(value), "enabled": key not in disabled,
+                              "exists": Path(str(value)).is_file()} for key, value in sorted(registry.items())]}
     if operation == "windows":
         return {"windows": [{"id": str(hwnd), "title": title} for hwnd, title in macro.visible_windows()]}
     if operation == "status":
