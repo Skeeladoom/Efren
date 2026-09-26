@@ -90,9 +90,17 @@ def _optimize_rvc(model, index):
     logical = max(1, os.cpu_count() or 1)
     # Two sensible CPU points are enough; testing every thread count made the
     # first voice selection take several minutes on older processors.
-    cpu_threads = [min(4, logical)]
-    if not cpu_threads: cpu_threads = [1]
-    candidates = [("cpu", value) for value in cpu_threads]
+    cpu_threads = sorted(set(min(logical, value) for value in (2, 4, 6, 8)))
+    profiles = [
+        ("pm", 0.0, 0),
+        ("pm", 0.45, 0),
+        ("rmvpe", 0.0, 0),
+        ("rmvpe", 0.45, 3),
+    ]
+    # First find a sensible CPU thread count with the cheapest profile. Then
+    # compare conversion profiles using that count. This gives the same useful
+    # answer as a full Cartesian benchmark without making setup take minutes.
+    candidates = [("cpu", value, profiles[0]) for value in cpu_threads]
     # DirectML is meant here for AMD/Intel integrated graphics. On Nvidia the
     # CUDA backend is the appropriate future path; RVC over DirectML proved
     # unstable on Pascal and could hang an otherwise completed reply.
@@ -103,38 +111,66 @@ def _optimize_rvc(model, index):
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=15)
         directml_name = probe.stdout.strip().casefold()
         if probe.returncode == 0 and directml_name and "nvidia" not in directml_name:
-            candidates.append(("directml", min(4, logical)))
+            candidates.append(("directml", min(4, logical), profiles[0]))
     except (OSError, subprocess.SubprocessError):
         pass
     best = None
-    for number, (device, threads) in enumerate(candidates, 1):
+    debug = []
+
+    def run_candidate(device, threads, profile, number, total):
+        method, index_rate, filter_radius = profile
         with _voice_lock:
             label = "видеоядро / DirectML" if device == "directml" else f"CPU, {threads} потоков"
-            _voice_job.update(message="Проверка RVC: " + label + "…", downloaded=number - 1, total=len(candidates))
-        output1 = benchmark.with_name(f"rvc-test-{device}-{threads}.wav")
-        requests = "\n".join(json.dumps({"input": str(benchmark), "output": str(output), "method": "rmvpe",
-                                          "index_rate": 0.45, "protect": 0.28, "filter_radius": 3})
+            _voice_job.update(message=f"Проверка RVC: {label} · {method.upper()}…", downloaded=number - 1, total=total)
+        output1 = benchmark.with_name(f"rvc-test-{device}-{threads}-{method}-{index_rate}.wav")
+        requests = "\n".join(json.dumps({"input": str(benchmark), "output": str(output), "method": method,
+                                          "index_rate": index_rate, "protect": 0.28, "filter_radius": filter_radius})
                              for output in (output1,)) + "\n"
         started = time.perf_counter()
-        process = subprocess.run([str(python), str(bridge), str(model), str(index), str(threads), device],
-                                 cwd=engine, input=requests, text=True, encoding="utf-8", errors="replace",
-                                 capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=180)
-        elapsed = time.perf_counter() - started
+        try:
+            process = subprocess.run([str(python), str(bridge), str(model), str(index), str(threads), device],
+                                     cwd=engine, input=requests, text=True, encoding="utf-8", errors="replace",
+                                     capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=180)
+            elapsed = time.perf_counter() - started
+        except subprocess.TimeoutExpired as exc:
+            elapsed = time.perf_counter() - started
+            timed_stdout = exc.stdout or ""
+            if isinstance(timed_stdout, bytes):
+                timed_stdout = timed_stdout.decode("utf-8", errors="replace")
+            process = type("TimedOut", (), {"returncode": -1, "stdout": timed_stdout, "stderr": "timeout"})()
         good = process.returncode == 0 and output1.is_file() and process.stdout.count('"status": "ready"') >= 2
         output1.unlink(missing_ok=True)
         # DirectML reports a numbered torch device (usually privateuseone:0),
         # while CPU is reported without an index.
         expected_device = '"device": "privateuseone' if device == "directml" else '"device": "cpu"'
         good = good and expected_device in process.stdout
-        # A mode taking longer than this for one deliberately short phrase is
-        # unsuitable for interactive replies even if it technically works.
-        if good and elapsed <= 35.0 and (best is None or elapsed < best[0]): best = (elapsed, threads, device)
+        debug.append({"device": device, "threads": threads, "method": method,
+                      "index_rate": index_rate, "filter_radius": filter_radius,
+                      "returncode": process.returncode, "elapsed": round(elapsed, 3),
+                      "good": good, "stdout": process.stdout[-4000:], "stderr": process.stderr[-4000:]})
+        return (elapsed, threads, device, method, index_rate, filter_radius) if good else None
+
+    total = len(candidates) + len(profiles) - 1
+    for number, (device, threads, profile) in enumerate(candidates, 1):
+        result = run_candidate(device, threads, profile, number, total)
+        if result and (best is None or result[0] < best[0]): best = result
+    if best is not None:
+        for profile in profiles[1:]:
+            number += 1
+            result = run_candidate(best[2], best[1], profile, number, total)
+            if result and result[0] < best[0]: best = result
+    debug_path = panel.BASE_DIR / "logs" / "rvc-benchmark-debug.txt"
+    debug_path.parent.mkdir(parents=True, exist_ok=True)
+    debug_path.write_text(json.dumps(debug, ensure_ascii=False, indent=2), encoding="utf-8")
     benchmark.unlink(missing_ok=True)
     if best is None: raise RuntimeError("RVC не прошёл проверку ни на CPU, ни через DirectML")
     config = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.exists() else {}
     config["rvc_cpu_threads"] = best[1]
     config["rvc_device"] = best[2]
     config["rvc_benchmark_seconds"] = round(best[0], 2)
+    config["rvc_f0_method"] = best[3]
+    config["rvc_index_rate"] = best[4]
+    config["rvc_filter_radius"] = best[5]
     atomic_json(config_path, config)
     return best
 
@@ -184,10 +220,10 @@ def voice_store(request):
             _voice_job.update(running=True, message="Подготовка автоматической проверки RVC…", downloaded=0, total=0, error=False)
         def optimize():
             try:
-                elapsed, threads, device = _optimize_rvc(model, index)
+                elapsed, threads, device, method, index_rate, filter_radius = _optimize_rvc(model, index)
                 label = "видеоядро / DirectML" if device == "directml" else f"CPU, {threads} потоков"
                 with _voice_lock: _voice_job.update(running=False, downloaded=_voice_job["total"],
-                    message=f"Голос выбран. Лучший режим: {label} ({elapsed:.1f} с на тест). Перезапустите помощника.", error=False)
+                    message=f"Голос выбран: {label} · {method.upper()} · index {index_rate:.2f} · filter {filter_radius} ({elapsed:.1f} с). Перезапустите помощника.", error=False)
             except Exception as exc:
                 config = json.loads(config_path.read_text(encoding="utf-8-sig"))
                 config["rvc_enabled"] = False; atomic_json(config_path, config)

@@ -50,7 +50,7 @@ def add_component(destination, source=ROOT):
                         ignore=shutil.ignore_patterns(".cache", "__pycache__", "*.pyc"))
 
     subprocess.run([str(python), "-c",
-                    "import faiss, librosa, parselmouth, scipy, torch_directml, transformers; print('RVC CPU/DirectML dependencies: OK')"],
+                    "import numpy._core.tests._natype, faiss, librosa, parselmouth, scipy.signal, torch_directml, transformers; print('RVC CPU/DirectML dependencies: OK')"],
                    check=True, cwd=destination)
     print("CPU/DirectML RVC component added:", engine_target)
 

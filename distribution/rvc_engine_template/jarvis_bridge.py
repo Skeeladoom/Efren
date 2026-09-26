@@ -26,6 +26,7 @@ import soundfile as sf
 import torch
 from configs.config import Config
 from infer.vc.modules import VC
+from infer.vc.utils import load_hubert
 
 PREFIX = "JARVIS_RVC:"
 
@@ -50,6 +51,9 @@ def main():
 
     converter = VC(config)
     converter.get_vc(model.name)
+    # "ready" must mean the expensive shared feature model is loaded too;
+    # otherwise the first spoken reply pays the HuBERT cold-start cost.
+    converter.hubert_model = load_hubert(config)
     reply({
         "status": "ready",
         "device": str(config.device),
