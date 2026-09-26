@@ -7,6 +7,7 @@ import time
 import uuid
 import hashlib
 import shutil
+import subprocess
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -60,6 +61,70 @@ def _installed_voices():
     return sorted(voices, key=lambda x: str(x.get("name", "")).casefold())
 
 
+def _root_path(value):
+    path = Path(str(value))
+    return path if path.is_absolute() else panel.BASE_DIR / path
+
+
+def _optimize_rvc(model, index):
+    """Benchmark isolated CPU/DirectML bridges and save the fastest valid mode."""
+    config_path = panel.BASE_DIR / "config.json"
+    config = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.exists() else {}
+    python = panel.BASE_DIR / "runtime" / "python" / "python.exe"
+    engine = panel.BASE_DIR / "rvc_engine"
+    bridge = engine / "jarvis_bridge.py"
+    piper = _root_path(config.get("piper_exe", "runtime/piper/piper.exe"))
+    piper_model = _root_path(config.get("piper_model", "tts_models/ru_RU-ruslan-medium.onnx"))
+    required = (python, bridge, engine / "assets" / "hubert_base" / "pytorch_model.bin",
+                engine / "assets" / "rmvpe" / "rmvpe.pt", piper, piper_model, model)
+    if not all(path.exists() for path in required):
+        missing = next(path for path in required if not path.exists())
+        raise FileNotFoundError("Компонент CPU-RVC неполный: " + str(missing))
+    benchmark = panel.BASE_DIR / "runtime" / "rvc-benchmark.wav"
+    command = [str(piper), "--model", str(piper_model), "--config", str(piper_model) + ".json",
+               "--output_file", str(benchmark), "--length_scale", "1.0"]
+    result = subprocess.run(command, input="Проверка скорости выбранного голоса.", text=True, encoding="utf-8",
+                            capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=30)
+    if result.returncode != 0 or not benchmark.is_file():
+        raise RuntimeError("Не удалось создать звук для проверки RVC")
+    logical = max(1, os.cpu_count() or 1)
+    # Two sensible CPU points are enough; testing every thread count made the
+    # first voice selection take several minutes on older processors.
+    cpu_threads = sorted(set(x for x in (2, 4) if x <= logical))
+    if not cpu_threads: cpu_threads = [1]
+    candidates = [("cpu", value) for value in cpu_threads] + [("directml", min(4, logical))]
+    best = None
+    for number, (device, threads) in enumerate(candidates, 1):
+        with _voice_lock:
+            label = "видеоядро / DirectML" if device == "directml" else f"CPU, {threads} потоков"
+            _voice_job.update(message="Проверка RVC: " + label + "…", downloaded=number - 1, total=len(candidates))
+        output1 = benchmark.with_name(f"rvc-test-{device}-{threads}-1.wav")
+        output2 = benchmark.with_name(f"rvc-test-{device}-{threads}-2.wav")
+        requests = "\n".join(json.dumps({"input": str(benchmark), "output": str(output), "method": "rmvpe",
+                                          "index_rate": 0.45, "protect": 0.28, "filter_radius": 3})
+                             for output in (output1, output2)) + "\n"
+        started = time.perf_counter()
+        process = subprocess.run([str(python), str(bridge), str(model), str(index), str(threads), device],
+                                 cwd=engine, input=requests, text=True, encoding="utf-8", errors="replace",
+                                 capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=180)
+        elapsed = time.perf_counter() - started
+        good = process.returncode == 0 and output1.is_file() and output2.is_file() and process.stdout.count('"status": "ready"') >= 3
+        for output in (output1, output2): output.unlink(missing_ok=True)
+        # DirectML reports a numbered torch device (usually privateuseone:0),
+        # while CPU is reported without an index.
+        expected_device = '"device": "privateuseone' if device == "directml" else '"device": "cpu"'
+        good = good and expected_device in process.stdout
+        if good and (best is None or elapsed < best[0]): best = (elapsed, threads, device)
+    benchmark.unlink(missing_ok=True)
+    if best is None: raise RuntimeError("RVC не прошёл проверку ни на CPU, ни через DirectML")
+    config = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.exists() else {}
+    config["rvc_cpu_threads"] = best[1]
+    config["rvc_device"] = best[2]
+    config["rvc_benchmark_seconds"] = round(best[0], 2)
+    atomic_json(config_path, config)
+    return best
+
+
 def voice_store(request):
     operation = str(request.get("operation", "list"))
     if operation == "status":
@@ -94,15 +159,42 @@ def voice_store(request):
             raise ValueError("Файл модели не найден")
         config_path = panel.BASE_DIR / "config.json"
         config = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.exists() else {}
-        config.update({"rvc_enabled": True, "rvc_model": str(model),
-                       "rvc_index": str(index) if index.is_file() else ""})
+        config.update({"rvc_enabled": True, "rvc_required": False,
+                       "rvc_root": str(panel.BASE_DIR / "rvc_engine"),
+                       "rvc_python": str(panel.BASE_DIR / "runtime" / "python" / "python.exe"),
+                       "rvc_model": str(model), "rvc_index": str(index) if index.is_file() else "",
+                       "rvc_timeout_seconds": 60})
         atomic_json(config_path, config)
-        return {"message": "Голос выбран. Перезапустите помощника, чтобы применить его."}
+        with _voice_lock:
+            if _voice_job["running"]: raise ValueError("Дождитесь завершения текущей операции")
+            _voice_job.update(running=True, message="Подготовка автоматической проверки RVC…", downloaded=0, total=0, error=False)
+        def optimize():
+            try:
+                elapsed, threads, device = _optimize_rvc(model, index)
+                label = "видеоядро / DirectML" if device == "directml" else f"CPU, {threads} потоков"
+                with _voice_lock: _voice_job.update(running=False, downloaded=_voice_job["total"],
+                    message=f"Голос выбран. Лучший режим: {label} ({elapsed:.1f} с на тест). Перезапустите помощника.", error=False)
+            except Exception as exc:
+                config = json.loads(config_path.read_text(encoding="utf-8-sig"))
+                config["rvc_enabled"] = False; atomic_json(config_path, config)
+                with _voice_lock: _voice_job.update(running=False, message="RVC отключён: " + str(exc), error=True)
+        threading.Thread(target=optimize, name="RvcAutoBenchmark", daemon=True).start()
+        return {"message": "Голос выбран. Сравниваю скорость CPU и видеоядра…", "optimizing": True}
     if operation == "delete":
         directory = Path(str(request.get("directory", ""))).resolve()
         store = (panel.BASE_DIR / "rvc_models" / "store").resolve()
         if store not in directory.parents or not (directory / "voice.json").is_file():
             raise ValueError("Это не установленный голос EFREN")
+        config_path = panel.BASE_DIR / "config.json"
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8-sig"))
+            active = Path(str(config.get("rvc_model", ""))).resolve()
+            if directory in active.parents:
+                config["rvc_enabled"] = False
+                config["rvc_model"] = ""; config["rvc_index"] = ""
+                atomic_json(config_path, config)
+        except (OSError, ValueError, TypeError):
+            pass
         shutil.rmtree(directory)
         return {"message": "Голос удалён."}
     if operation != "install":

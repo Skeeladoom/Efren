@@ -363,7 +363,10 @@ namespace Efren.Panel
                 double done = data.ContainsKey("downloaded") ? Convert.ToDouble(data["downloaded"]) : 0;
                 progress.Value = total > 0 ? Math.Min(1, done / total) : 0;
                 status.Text = PageUI.Str(data, "message") + (total > 0 ? "  " + Math.Round(done / 1048576) + " / " + Math.Round(total / 1048576) + " МБ" : "");
-                if (!PageUI.Flag(data, "running")) { timer.Stop(); progress.Visibility = Visibility.Collapsed; await LoadInstalled(); }
+                if (!PageUI.Flag(data, "running")) {
+                    string finalMessage = status.Text;
+                    timer.Stop(); progress.Visibility = Visibility.Collapsed; await LoadInstalled(); status.Text = finalMessage;
+                }
             } catch (Exception ex) { timer.Stop(); status.Text = ex.Message; }
         }
 
@@ -380,6 +383,7 @@ namespace Efren.Panel
                 actions.Children.Add(PageUI.Button("Выбрать для помощника", async delegate {
                     var result = (Dictionary<string, object>)await backend.Call("voice_store", "operation", "select", "directory", directory);
                     status.Text = PageUI.Str(result, "message");
+                    if (PageUI.Flag(result, "optimizing")) { progress.Value = 0; progress.Visibility = Visibility.Visible; timer.Start(); }
                 }));
                 actions.Children.Add(PageUI.Button("Удалить", async delegate {
                     if (MessageBox.Show(Window.GetWindow(this), "Удалить голос «" + name + "»?", "Удаление голоса", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;

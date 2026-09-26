@@ -214,6 +214,10 @@ class LocalTTS:
         self.rvc_protect = max(0.0, min(0.5, float(config.get("rvc_protect", 0.28))))
         self.rvc_filter_radius = max(0, min(7, int(config.get("rvc_filter_radius", 3))))
         self.rvc_timeout = float(config.get("rvc_timeout_seconds", 25.0))
+        self.rvc_cpu_threads = max(1, min(32, int(config.get("rvc_cpu_threads", 4))))
+        self.rvc_device = str(config.get("rvc_device", "auto")).lower().strip()
+        if self.rvc_device not in {"auto", "cpu", "directml"}:
+            self.rvc_device = "auto"
         self.rvc_required = bool(config.get("rvc_required", False))
         self.last_render_used_rvc = False
         self.last_render_metrics = {}
@@ -477,7 +481,7 @@ class LocalTTS:
         environment = os.environ.copy()
         environment.update(PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
         self.rvc_bridge = subprocess.Popen(
-            [str(self.rvc_python), str(bridge), str(self.rvc_model), str(self.rvc_index)],
+            [str(self.rvc_python), str(bridge), str(self.rvc_model), str(self.rvc_index), str(self.rvc_cpu_threads), self.rvc_device],
             cwd=str(self.rvc_root), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, encoding="utf-8", bufsize=1,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), env=environment,

@@ -1,0 +1,11 @@
+faiss-cpu==1.15.0
+librosa==0.11.0
+ffmpeg-python==0.2.0
+praat-parselmouth==0.4.7
+scipy==1.17.1
+scikit-learn==1.9.0
+numba==0.67.0
+transformers==4.49.0
+torch-directml==0.2.5.dev240914
+torchaudio==2.4.1
+onnxruntime-directml==1.24.4
