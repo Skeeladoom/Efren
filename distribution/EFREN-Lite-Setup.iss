@@ -7,6 +7,7 @@ AppId=EFREN-Lite
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
+UninstallDisplayIcon={app}\panel-wpf\bin\FridayPanel.exe
 DefaultDirName={localappdata}\EFREN-Lite
 DefaultGroupName={#MyAppName}
 OutputDir=.
