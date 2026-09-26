@@ -275,7 +275,7 @@ def dispatch(request):
     global lite_console
     check_request(request, is_lite(panel.BASE_DIR))
     action = request.get("action")
-    if action in {"logs", "members", "macros"}:
+    if action in {"logs", "members", "macros", "voice_store"}:
         import panel_features
         return panel_features.dispatch(request)
     if action == "status":

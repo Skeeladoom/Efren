@@ -334,6 +334,7 @@ namespace Efren.Panel
             };
             Find<Button>("Macros").Click += delegate { OpenNative("macros", "Конструктор сценариев"); };
             Find<Button>("CommandList").Click += delegate { OpenNative("commands", "Мои голосовые команды"); };
+            Find<Button>("VoiceStore").Click += delegate { OpenNative("voice_store", "Магазин голосов"); };
             Bind("Chat", "window", "window", "chat");
             Bind("Legacy", "window", "window", "legacy"); Bind("Project", "project");
             Find<Button>("Diagnostics").Click += async delegate {
@@ -704,7 +705,9 @@ namespace Efren.Panel
                     status.Text = "Обновление " + latest + " отложено.";
                     return;
                 }
-                string directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EFREN-Lite", "updates");
+                // Keep the large installer on the same drive that the user
+                // selected for EFREN instead of duplicating it on drive C:.
+                string directory = Path.Combine(root, "updates");
                 Directory.CreateDirectory(directory);
                 string target = Path.Combine(directory, "EFREN-Lite-Setup-" + latest + ".exe");
                 progress.Value = 0; progress.Visibility = Visibility.Visible;
@@ -720,6 +723,11 @@ namespace Efren.Panel
                 string expected = digest.Substring(7).Trim().ToLowerInvariant();
                 string actual = await Task.Run(() => Sha256(target));
                 if (actual != expected) { File.Delete(target); throw new InvalidDataException("SHA-256 установщика не совпал. Файл удалён."); }
+                status.Text = "Сохраняю настройки и сценарии перед обновлением…";
+                string backupDirectory = Path.Combine(root, "backups");
+                Directory.CreateDirectory(backupDirectory);
+                string backupPath = Path.Combine(backupDirectory, "before-update-" + current + "-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".zip");
+                await backend.Call("backup", "operation", "export", "path", backupPath);
                 status.Text = "Проверка пройдена. Запускаю установщик " + latest + "…";
                 Process.Start(new ProcessStartInfo(target, "/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS") { UseShellExecute = true });
                 closing = true;
@@ -900,6 +908,7 @@ namespace Efren.Panel
                 if (key == "members") nativePages[key] = new MembersPage(backend);
                 else if (key == "macros") nativePages[key] = new MacrosPage(backend, root);
                 else if (key == "commands") nativePages[key] = new CommandsPage(backend);
+                else if (key == "voice_store") nativePages[key] = new VoiceStorePage(backend);
                 else nativePages[key] = new JournalPage(backend, key, delegate {
                     Navigate("SettingsPage", "Настройки", "Изменения сохраняются сразу");
                     Find<TextBlock>("RepliesTitle").BringIntoView();
@@ -1123,6 +1132,9 @@ namespace Efren.Panel
         {
             try
             {
+                // .NET Framework on trimmed/older Windows installations can
+                // otherwise negotiate obsolete TLS and fail against GitHub.
+                ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072; // TLS 1.2
                 string root = AppDomain.CurrentDomain.BaseDirectory;
                 while (!File.Exists(Path.Combine(root, "panel_backend.py")))
                 {

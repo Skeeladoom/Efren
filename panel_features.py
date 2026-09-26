@@ -5,9 +5,165 @@ import re
 import threading
 import time
 import uuid
+import hashlib
+import shutil
+import urllib.parse
+import urllib.request
 from pathlib import Path
 import control_panel_v0120_JARVIS as panel
 import panel_log_format as logs
+
+
+HF_VOICE_REPO = "niobures/RVC-Models"
+_voice_job = {"running": False, "message": "", "downloaded": 0, "total": 0, "error": False}
+_voice_lock = threading.Lock()
+
+
+def _voice_path(value):
+    value = str(value or "").replace("\\", "/").strip("/")
+    if any(part in {"", ".", ".."} for part in value.split("/")) if value else False:
+        raise ValueError("Недопустимый путь каталога")
+    return value
+
+
+def _hf_voice_items(path):
+    encoded = urllib.parse.quote(path, safe="/")
+    suffix = "/" + encoded if encoded else ""
+    url = f"https://huggingface.co/api/models/{HF_VOICE_REPO}/tree/main{suffix}?limit=1000"
+    request = urllib.request.Request(url, headers={"User-Agent": "EFREN-Lite/0.1.5"})
+    with urllib.request.urlopen(request, timeout=20) as response:
+        result = json.loads(response.read().decode("utf-8"))
+    if not isinstance(result, list):
+        raise ValueError("Hugging Face вернул неожиданный ответ")
+    return result
+
+
+def _installed_voices():
+    root = panel.BASE_DIR / "rvc_models" / "store"
+    active_model = ""
+    try:
+        config_path = panel.BASE_DIR / "config.json"
+        active_model = str(json.loads(config_path.read_text(encoding="utf-8-sig")).get("rvc_model", ""))
+    except (OSError, ValueError, TypeError):
+        pass
+    voices = []
+    if root.is_dir():
+        for metadata in root.glob("*/voice.json"):
+            try:
+                item = json.loads(metadata.read_text(encoding="utf-8"))
+                item["directory"] = str(metadata.parent)
+                item["installed"] = True
+                item["active"] = str(metadata.parent / str(item.get("model", ""))) == active_model
+                voices.append(item)
+            except (OSError, ValueError, TypeError):
+                continue
+    return sorted(voices, key=lambda x: str(x.get("name", "")).casefold())
+
+
+def voice_store(request):
+    operation = str(request.get("operation", "list"))
+    if operation == "status":
+        with _voice_lock:
+            return dict(_voice_job)
+    if operation == "installed":
+        return {"voices": _installed_voices()}
+    if operation == "list":
+        path = _voice_path(request.get("path", ""))
+        raw = _hf_voice_items(path)
+        entries = []
+        for item in raw:
+            item_path = str(item.get("path", ""))
+            entries.append({
+                "name": item_path.rsplit("/", 1)[-1], "path": item_path,
+                "type": item.get("type", ""), "size": int(item.get("size", 0) or 0),
+                "sha256": str((item.get("lfs") or {}).get("oid", "")),
+            })
+        files = [entry for entry in entries if entry["type"] == "file"]
+        return {"path": path, "entries": entries,
+                "installable": any(x["name"].lower().endswith(".pth") for x in files),
+                "installed": any(x.get("source_path") == path for x in _installed_voices())}
+    if operation == "select":
+        directory = Path(str(request.get("directory", ""))).resolve()
+        store = (panel.BASE_DIR / "rvc_models" / "store").resolve()
+        if store not in directory.parents:
+            raise ValueError("Голос находится вне хранилища EFREN")
+        metadata = json.loads((directory / "voice.json").read_text(encoding="utf-8"))
+        model = directory / str(metadata["model"])
+        index = directory / str(metadata.get("index", ""))
+        if not model.is_file():
+            raise ValueError("Файл модели не найден")
+        config_path = panel.BASE_DIR / "config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.exists() else {}
+        config.update({"rvc_enabled": True, "rvc_model": str(model),
+                       "rvc_index": str(index) if index.is_file() else ""})
+        atomic_json(config_path, config)
+        return {"message": "Голос выбран. Перезапустите помощника, чтобы применить его."}
+    if operation == "delete":
+        directory = Path(str(request.get("directory", ""))).resolve()
+        store = (panel.BASE_DIR / "rvc_models" / "store").resolve()
+        if store not in directory.parents or not (directory / "voice.json").is_file():
+            raise ValueError("Это не установленный голос EFREN")
+        shutil.rmtree(directory)
+        return {"message": "Голос удалён."}
+    if operation != "install":
+        raise ValueError("Неизвестная операция магазина голосов")
+    path = _voice_path(request.get("path", ""))
+    with _voice_lock:
+        if _voice_job["running"]:
+            raise ValueError("Другой голос уже скачивается")
+        _voice_job.update(running=True, message="Чтение состава голоса…", downloaded=0, total=0, error=False)
+
+    def download():
+        temporary = None
+        try:
+            items = [x for x in _hf_voice_items(path) if x.get("type") == "file"]
+            models = [x for x in items if str(x.get("path", "")).lower().endswith(".pth")]
+            indexes = [x for x in items if str(x.get("path", "")).lower().endswith(".index")]
+            if not models:
+                raise ValueError("В этой папке нет модели .pth")
+            model = max(models, key=lambda x: int(x.get("size", 0) or 0))
+            index = max(indexes, key=lambda x: int(x.get("size", 0) or 0)) if indexes else None
+            chosen = [model] + ([index] if index else [])
+            total = sum(int(x.get("size", 0) or 0) for x in chosen)
+            if total <= 0 or total > 900 * 1024 * 1024:
+                raise ValueError("Недопустимый размер голосового пакета")
+            key = hashlib.sha256(path.encode("utf-8")).hexdigest()[:16]
+            target = panel.BASE_DIR / "rvc_models" / "store" / key
+            temporary = target.with_name(target.name + ".download")
+            if temporary.exists(): shutil.rmtree(temporary)
+            temporary.mkdir(parents=True)
+            downloaded = 0
+            with _voice_lock: _voice_job.update(total=total, message="Скачивание файлов голоса…")
+            saved = []
+            for remote in chosen:
+                remote_path = str(remote["path"])
+                name = Path(remote_path).name
+                destination = temporary / name
+                url = f"https://huggingface.co/{HF_VOICE_REPO}/resolve/main/{urllib.parse.quote(remote_path, safe='/')}?download=true"
+                req = urllib.request.Request(url, headers={"User-Agent": "EFREN-Lite/0.1.5"})
+                digest = hashlib.sha256()
+                with urllib.request.urlopen(req, timeout=45) as response, destination.open("wb") as output:
+                    while True:
+                        chunk = response.read(1024 * 1024)
+                        if not chunk: break
+                        output.write(chunk); digest.update(chunk); downloaded += len(chunk)
+                        with _voice_lock: _voice_job["downloaded"] = downloaded
+                expected = str((remote.get("lfs") or {}).get("oid", "")).lower()
+                if expected and digest.hexdigest().lower() != expected:
+                    raise ValueError("SHA-256 загруженного файла не совпал")
+                saved.append(name)
+            metadata = {"format": "EFREN-RVC-VOICE-1", "name": path.rsplit("/", 1)[-1],
+                        "source_path": path, "repository": HF_VOICE_REPO,
+                        "model": saved[0], "index": saved[1] if len(saved) > 1 else ""}
+            atomic_json(temporary / "voice.json", metadata)
+            if target.exists(): shutil.rmtree(target)
+            os.replace(temporary, target); temporary = None
+            with _voice_lock: _voice_job.update(running=False, message="Голос установлен.", downloaded=total, error=False)
+        except Exception as exc:
+            if temporary and temporary.exists(): shutil.rmtree(temporary, ignore_errors=True)
+            with _voice_lock: _voice_job.update(running=False, message="Ошибка: " + str(exc), error=True)
+    threading.Thread(target=download, name="VoiceStoreDownload", daemon=True).start()
+    return {"message": "Скачивание начато."}
 
 
 def read_logs(request):
@@ -209,4 +365,5 @@ def dispatch(request):
     if action == "logs": return read_logs(request)
     if action == "members": return members(request)
     if action == "macros": return macros(request)
+    if action == "voice_store": return voice_store(request)
     raise ValueError("Неизвестная функция")

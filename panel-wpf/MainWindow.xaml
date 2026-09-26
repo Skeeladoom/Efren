@@ -151,6 +151,7 @@
        <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Речь и команды" FontSize="19" FontWeight="SemiBold" Margin="0,0,0,12"/>
         <CheckBox x:Name="VoiceEnabled" Content="Слушать микрофон компьютера"/><CheckBox x:Name="TtsEnabled" Content="Озвучивать ответы"/><CheckBox x:Name="DiscordEnabled" Content="Команды Discord"/><CheckBox x:Name="WindowsEnabled" Content="Команды Windows"/>
        </StackPanel></Border>
+       <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Голос помощника" FontSize="19" FontWeight="SemiBold"/><TextBlock Text="Просмотр и установка RVC-голосов напрямую из публичного каталога Hugging Face. Файлы устанавливаются автоматически." Style="{StaticResource Muted}" Margin="0,8,0,14" TextWrapping="Wrap"/><Button x:Name="VoiceStore" Content="Открыть магазин голосов" HorizontalAlignment="Left"/></StackPanel></Border>
        <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="Участники Discord" FontSize="19" FontWeight="SemiBold" Margin="0,0,0,12"/>
         <CheckBox x:Name="FriendsVoice" Content="Слушать участников войса"/><CheckBox x:Name="FriendsCommands" Content="Разрешить участникам команды Discord"/>
         <TextBlock Text="Права конкретного участника задаются в окне ролей." Style="{StaticResource Muted}" Margin="0,12,0,0"/>

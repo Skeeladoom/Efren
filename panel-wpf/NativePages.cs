@@ -286,6 +286,112 @@ namespace Efren.Panel
         }
     }
 
+    sealed class VoiceStorePage : UserControl
+    {
+        readonly Backend backend;
+        readonly StackPanel rows = new StackPanel();
+        readonly TextBlock location = PageUI.Text("Hugging Face · niobures/RVC-Models", true);
+        readonly TextBlock status = PageUI.Text("", true);
+        readonly ProgressBar progress = new ProgressBar { Height = 8, Minimum = 0, Maximum = 1, Margin = new Thickness(0, 4, 8, 12), Visibility = Visibility.Collapsed };
+        readonly DispatcherTimer timer = new DispatcherTimer();
+        string current = "";
+
+        public VoiceStorePage(Backend backend)
+        {
+            this.backend = backend;
+            var body = new StackPanel();
+            Content = new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+            body.Children.Add(PageUI.Text("Голоса загружаются напрямую из публичного репозитория Hugging Face. EFREN сам положит .pth и .index в нужную папку и проверит SHA-256.", true));
+            var toolbar = new WrapPanel(); body.Children.Add(toolbar);
+            toolbar.Children.Add(PageUI.Button("← Назад", async delegate { await Back(); }));
+            toolbar.Children.Add(PageUI.Button("Обновить", async delegate { await Load(current); }));
+            toolbar.Children.Add(PageUI.Button("Установленные голоса", LoadInstalled));
+            body.Children.Add(location); body.Children.Add(progress); body.Children.Add(status); body.Children.Add(rows);
+            timer.Interval = TimeSpan.FromMilliseconds(700);
+            timer.Tick += async delegate { await Poll(); };
+            Unloaded += delegate { timer.Stop(); };
+            IsVisibleChanged += async delegate { if (IsVisible) await Load(current); else timer.Stop(); };
+        }
+
+        public Task RefreshPage() { return Load(current); }
+
+        async Task Back()
+        {
+            if (string.IsNullOrEmpty(current)) return;
+            int slash = current.LastIndexOf('/');
+            await Load(slash < 0 ? "" : current.Substring(0, slash));
+        }
+
+        async Task Load(string path)
+        {
+            rows.Children.Clear(); status.Text = "Загрузка каталога…";
+            try {
+                var data = (Dictionary<string, object>)await backend.Call("voice_store", "operation", "list", "path", path);
+                current = PageUI.Str(data, "path");
+                location.Text = "Hugging Face / " + (string.IsNullOrEmpty(current) ? "RVC-Models" : current);
+                if (PageUI.Flag(data, "installable")) {
+                    var install = PageUI.Button(PageUI.Flag(data, "installed") ? "Переустановить этот голос" : "Установить этот голос", async delegate { await Install(); });
+                    install.SetResourceReference(Control.BackgroundProperty, "ThemeAccent"); rows.Children.Add(install);
+                    rows.Children.Add(PageUI.Text("Будут скачаны модель .pth и индекс .index из этой папки.", true));
+                }
+                int count = 0;
+                foreach (var entry in PageUI.Array(data["entries"]).Cast<Dictionary<string, object>>()) {
+                    string type = PageUI.Str(entry, "type"), itemPath = PageUI.Str(entry, "path"), itemName = PageUI.Str(entry, "name");
+                    if (type != "directory") continue;
+                    var chosen = itemPath;
+                    rows.Children.Add(PageUI.Button("📁 " + itemName, async delegate { await Load(chosen); })); count++;
+                }
+                if (count == 0 && !PageUI.Flag(data, "installable"))
+                    rows.Children.Add(PageUI.Text("В этой папке нет подпапок или поддерживаемой модели .pth.", true));
+                status.Text = "Папок: " + count;
+            } catch (Exception ex) { status.Text = "Не удалось открыть Hugging Face: " + ex.Message; }
+        }
+
+        async Task Install()
+        {
+            var answer = MessageBox.Show(Window.GetWindow(this), "Скачать файлы голоса из текущей папки? Размер может превышать 100 МБ.", "Установка голоса", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+            if (answer != MessageBoxResult.Yes) return;
+            var data = (Dictionary<string, object>)await backend.Call("voice_store", "operation", "install", "path", current);
+            status.Text = PageUI.Str(data, "message"); progress.Value = 0; progress.Visibility = Visibility.Visible; timer.Start();
+        }
+
+        async Task Poll()
+        {
+            try {
+                var data = (Dictionary<string, object>)await backend.Call("voice_store", "operation", "status");
+                double total = data.ContainsKey("total") ? Convert.ToDouble(data["total"]) : 0;
+                double done = data.ContainsKey("downloaded") ? Convert.ToDouble(data["downloaded"]) : 0;
+                progress.Value = total > 0 ? Math.Min(1, done / total) : 0;
+                status.Text = PageUI.Str(data, "message") + (total > 0 ? "  " + Math.Round(done / 1048576) + " / " + Math.Round(total / 1048576) + " МБ" : "");
+                if (!PageUI.Flag(data, "running")) { timer.Stop(); progress.Visibility = Visibility.Collapsed; await LoadInstalled(); }
+            } catch (Exception ex) { timer.Stop(); status.Text = ex.Message; }
+        }
+
+        async Task LoadInstalled()
+        {
+            rows.Children.Clear(); location.Text = "Установленные голоса"; status.Text = "Загрузка…";
+            var data = (Dictionary<string, object>)await backend.Call("voice_store", "operation", "installed");
+            int count = 0;
+            foreach (var voice in PageUI.Array(data["voices"]).Cast<Dictionary<string, object>>()) {
+                string name = PageUI.Str(voice, "name"), directory = PageUI.Str(voice, "directory");
+                var card = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
+                card.Children.Add(PageUI.Text(name + (PageUI.Flag(voice, "active") ? "  ·  выбран" : ""))); card.Children.Add(PageUI.Text(PageUI.Str(voice, "source_path"), true));
+                var actions = new WrapPanel(); card.Children.Add(actions);
+                actions.Children.Add(PageUI.Button("Выбрать для помощника", async delegate {
+                    var result = (Dictionary<string, object>)await backend.Call("voice_store", "operation", "select", "directory", directory);
+                    status.Text = PageUI.Str(result, "message");
+                }));
+                actions.Children.Add(PageUI.Button("Удалить", async delegate {
+                    if (MessageBox.Show(Window.GetWindow(this), "Удалить голос «" + name + "»?", "Удаление голоса", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+                    await backend.Call("voice_store", "operation", "delete", "directory", directory); await LoadInstalled();
+                }));
+                rows.Children.Add(card); count++;
+            }
+            if (count == 0) rows.Children.Add(PageUI.Text("Пока ничего не установлено. Нажмите «Назад», чтобы открыть каталог.", true));
+            status.Text = "Установлено голосов: " + count;
+        }
+    }
+
     sealed class MacrosPage : UserControl
     {
         public Task RefreshPage() { return LoadWindows(); }

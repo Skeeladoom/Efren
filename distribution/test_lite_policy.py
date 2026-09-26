@@ -27,6 +27,7 @@ class LitePolicyTests(unittest.TestCase):
 
     def test_lite_local_features_and_full_edition_unchanged(self):
         for request in ({"action": "status"}, {"action": "macros"},
+                        {"action": "voice_store"}, {"action": "backup"},
                         {"action": "logs", "source": "jarvis"}, {"action": "window", "window": "chat"},
                         {"action": "console"}, {"action": "favorite"}, {"action": "startup"},
                         {"action": "diagnostics"}, {"action": "full_shutdown"},
