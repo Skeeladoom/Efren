@@ -17,6 +17,23 @@ def startup_file(root):
     return Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/Startup" / ("EFREN_Lite_" + installation_id(root) + ".lnk")
 
 
+def ready_file(root):
+    return Path(root).resolve() / "runtime/lite-ready.json"
+
+
+def process_state(root):
+    process = owned_process(root)
+    if process is None:
+        return "stopped"
+    try:
+        data = json.loads(ready_file(root).read_text(encoding="utf-8"))
+        if int(data.get("pid", 0)) == process.pid:
+            return "running"
+    except (OSError, ValueError, TypeError):
+        pass
+    return "starting"
+
+
 def diagnostics(root):
     import psutil
     root = Path(root).resolve()
@@ -85,12 +102,14 @@ def jarvis_action(root, operation):
     current = owned_process(root)
     record = root / "runtime/lite-process.json"
     if current is not None and operation in {"stop", "restart"}:
+        ready_file(root).unlink(missing_ok=True)
         # psutil checks PID reuse; never taskkill by unverified PID or process name.
         current.terminate()
         current.wait(timeout=8)
         record.unlink(missing_ok=True)
         current = None
     if operation in {"start", "restart"} and current is None:
+        ready_file(root).unlink(missing_ok=True)
         for name in ("runtime/python/python.exe", "main.py", "models/gigaam/v3_rnnt.ckpt",
                      "runtime/piper/piper.exe", "tts_models/ru_RU-ruslan-medium.onnx"):
             if not (root / name).is_file():

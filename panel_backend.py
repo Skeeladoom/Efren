@@ -61,7 +61,7 @@ def status():
     health = {} if lite else (panel.discord_bridge_identity() or {})
     pid = None if lite else panel.read_jarvis_pid()
     if lite:
-        from lite_runtime import owned_process
+        from lite_runtime import owned_process, process_state
         process = owned_process(panel.BASE_DIR)
         pid = process.pid if process else None
     return {"names": identity.names(), "settings": panel.load_settings(), "browsers": panel.BROWSER_LABELS,
@@ -71,6 +71,7 @@ def status():
             "startup_enabled": __import__("lite_runtime").startup_file(panel.BASE_DIR).exists() if lite else panel.control_center_startup_file().with_name("EFREN_WPF.lnk").exists(),
             "legacy_startup": False if lite else panel.control_center_startup_file().exists(),
             "jarvis_running": bool(pid and panel.process_exists(pid)),
+            "jarvis_state": process_state(panel.BASE_DIR) if lite else ("running" if pid and panel.process_exists(pid) else "stopped"),
             "jarvis_pid": pid, "backend_pid": os.getpid()}
 
 

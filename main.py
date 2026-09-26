@@ -1817,6 +1817,12 @@ def voice_mode(
 
         return 1
 
+    if is_lite(BASE_DIR):
+        ready = BASE_DIR / "runtime/lite-ready.json"
+        temporary = ready.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+        os.replace(temporary, ready)
+
     if not resident:
         print(
             f"{MAIN_CODE_VERSION} "

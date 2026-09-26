@@ -5,6 +5,8 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Media;
+using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -198,7 +200,10 @@ namespace Efren.Panel
         };
         string[] browserKeys = new string[0];
         string[] browserLabels = new string[0];
+        TextBlock jarvisCommandsTitle;
         bool updating, refreshing, closing;
+        bool updateBusy;
+        string jarvisTransition = "";
         string fridayName = "Пятница", jarvisName = "Джарвис";
         DateTime lastMeasure = DateTime.UtcNow;
         double lastCpu;
@@ -304,7 +309,7 @@ namespace Efren.Panel
                 await Refresh();
             };
             Bind("FridayStart", "bot", "operation", "start"); Bind("FridayStop", "bot", "operation", "stop"); Bind("FridayRestart", "bot", "operation", "restart");
-            Bind("JarvisStart", "jarvis", "operation", "start"); Bind("JarvisStop", "jarvis", "operation", "stop"); Bind("JarvisRestart", "jarvis", "operation", "restart");
+            BindJarvis("JarvisStart", "start"); BindJarvis("JarvisStop", "stop"); BindJarvis("JarvisRestart", "restart");
             Bind("VoiceRestart", "voice_restart");
             Find<Button>("FridayLog").Click += delegate { OpenNative("friday", "Журнал и команды · " + fridayName); };
             Find<Button>("JarvisLog").Click += delegate { OpenNative("jarvis", "Журнал · " + jarvisName); };
@@ -344,6 +349,7 @@ namespace Efren.Panel
             };
             Bind("StartupOn", "startup", "enabled", true); Bind("StartupOff", "startup", "enabled", false);
             Find<Button>("PanelRestart").Click += delegate { Program.RestartRequested = true; window.Close(); };
+            Find<Button>("CheckUpdate").Click += async delegate { await CheckForUpdate(); };
             Bind("QwenOff", "setting", "key", "qwen_mode", "value", "disabled");
             Bind("QwenExplicit", "setting", "key", "qwen_mode", "value", "explicit");
             Bind("QwenAuto", "setting", "key", "qwen_mode", "value", "fallback");
@@ -411,7 +417,8 @@ namespace Efren.Panel
             }
             Find<TextBlock>("PageDescription").Text = "Джарвис Lite · GigaAM на CPU · локальные команды и оформление";
             var help = new StackPanel();
-            help.Children.Add(PageUI.Text("Команды Джарвиса"));
+            jarvisCommandsTitle = PageUI.Text("Команды помощника");
+            help.Children.Add(jarvisCommandsTitle);
             help.Children.Add(PageUI.Text("Например: «который час», «открой блокнот», «открой калькулятор», «открой настройки», «сверни окно», «сделай скриншот», «громкость 30», «запусти Доту». Голосом добавляйте имя помощника. Игры и приложения должны быть установлены."));
             help.Children.Add(PageUI.Text("Свои игры и ярлыки привязывайте к фразам через конструктор. Пути к программам на компьютере автора не переносятся. Qwen и управление общим Discord-ботом в Lite не включены.", true));
             var helpCard = new Border { Child = help, Style = (Style)window.FindResource("Card") };
@@ -521,6 +528,19 @@ namespace Efren.Panel
                 finally { if (!closing) button.IsEnabled = true; }
             };
         }
+        void BindJarvis(string name, string operation)
+        {
+            var button = Find<Button>(name);
+            button.Click += async delegate {
+                button.IsEnabled = false;
+                jarvisTransition = operation == "stop" ? "stopping" : "starting";
+                Find<TextBlock>("JarvisState").Text = operation == "stop" ? "◌ Останавливается…" : "◌ Запускается…";
+                try { await backend.Call("jarvis", "operation", operation); HideError(); }
+                catch (Exception ex) { jarvisTransition = ""; ShowError(ex.Message); }
+                finally { if (!closing) button.IsEnabled = true; }
+                await Refresh();
+            };
+        }
         async Task Login()
         {
             var button = Find<Button>("Login");
@@ -539,6 +559,94 @@ namespace Efren.Panel
             }
             catch (Exception ex) { Find<TextBlock>("LoginError").Text = ex.Message; }
             finally { button.IsEnabled = true; }
+        }
+        static Version ParseVersion(string value)
+        {
+            value = (value ?? "0.0.0").Trim().TrimStart('v', 'V');
+            int suffix = value.IndexOfAny(new[] { '-', '+' });
+            if (suffix >= 0) value = value.Substring(0, suffix);
+            Version result;
+            return Version.TryParse(value, out result) ? result : new Version(0, 0, 0);
+        }
+        static string Sha256(string path)
+        {
+            using (var stream = File.OpenRead(path))
+            using (var algorithm = SHA256.Create())
+                return BitConverter.ToString(algorithm.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
+        }
+        async Task CheckForUpdate()
+        {
+            if (updateBusy || !File.Exists(Path.Combine(root, "lite-build.json"))) return;
+            updateBusy = true;
+            var button = Find<Button>("CheckUpdate");
+            var status = Find<TextBlock>("UpdateStatus");
+            var progress = Find<ProgressBar>("UpdateProgress");
+            button.IsEnabled = false;
+            progress.Visibility = Visibility.Collapsed;
+            try
+            {
+                status.Text = "Проверяю последний выпуск GitHub…";
+                string localText = File.ReadAllText(Path.Combine(root, "lite-build.json"), Encoding.UTF8);
+                var local = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(localText);
+                string current = local.ContainsKey("version") ? Convert.ToString(local["version"]) : "0.0.0";
+                string repository = local.ContainsKey("release_repository") ? Convert.ToString(local["release_repository"]) : "Skeeladoom/Efren";
+                Dictionary<string, object> release;
+                using (var web = new WebClient())
+                {
+                    web.Headers[HttpRequestHeader.UserAgent] = "EFREN-Lite-Updater/" + current;
+                    web.Headers[HttpRequestHeader.Accept] = "application/vnd.github+json";
+                    string json = await web.DownloadStringTaskAsync(new Uri("https://api.github.com/repos/" + repository + "/releases/latest"));
+                    release = new JavaScriptSerializer { MaxJsonLength = 4 * 1024 * 1024 }.Deserialize<Dictionary<string, object>>(json);
+                }
+                string latest = Convert.ToString(release["tag_name"]).TrimStart('v', 'V');
+                if (ParseVersion(latest) <= ParseVersion(current))
+                {
+                    status.Text = "Установлена актуальная версия " + current + ".";
+                    return;
+                }
+                Dictionary<string, object> setup = null;
+                foreach (object item in (object[])release["assets"])
+                {
+                    var asset = (Dictionary<string, object>)item;
+                    if (String.Equals(Convert.ToString(asset["name"]), "EFREN-Lite-Setup.exe", StringComparison.OrdinalIgnoreCase)) { setup = asset; break; }
+                }
+                if (setup == null) throw new InvalidOperationException("В выпуске " + latest + " нет EFREN-Lite-Setup.exe.");
+                string digest = setup.ContainsKey("digest") ? Convert.ToString(setup["digest"]) : "";
+                if (!digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("GitHub не предоставил SHA-256 установщика. Обновление отменено.");
+                if (MessageBox.Show(window, "Доступна EFREN Lite " + latest + ". Скачать и установить обновление?", "Обновление EFREN Lite", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) != MessageBoxResult.Yes)
+                {
+                    status.Text = "Обновление " + latest + " отложено.";
+                    return;
+                }
+                string directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EFREN-Lite", "updates");
+                Directory.CreateDirectory(directory);
+                string target = Path.Combine(directory, "EFREN-Lite-Setup-" + latest + ".exe");
+                progress.Value = 0; progress.Visibility = Visibility.Visible;
+                using (var web = new WebClient())
+                {
+                    web.Headers[HttpRequestHeader.UserAgent] = "EFREN-Lite-Updater/" + current;
+                    web.DownloadProgressChanged += delegate(object sender, DownloadProgressChangedEventArgs e) {
+                        progress.Value = e.ProgressPercentage;
+                        status.Text = "Скачиваю " + latest + ": " + e.ProgressPercentage + "%";
+                    };
+                    await web.DownloadFileTaskAsync(new Uri(Convert.ToString(setup["browser_download_url"])), target);
+                }
+                string expected = digest.Substring(7).Trim().ToLowerInvariant();
+                string actual = await Task.Run(() => Sha256(target));
+                if (actual != expected) { File.Delete(target); throw new InvalidDataException("SHA-256 установщика не совпал. Файл удалён."); }
+                status.Text = "Проверка пройдена. Запускаю установщик " + latest + "…";
+                Process.Start(new ProcessStartInfo(target, "/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS") { UseShellExecute = true });
+                closing = true;
+                window.Close();
+            }
+            catch (WebException ex) { status.Text = "Не удалось проверить обновления: " + ex.Message; }
+            catch (Exception ex) { status.Text = "Обновление отменено: " + ex.Message; }
+            finally
+            {
+                updateBusy = false;
+                if (!closing) button.IsEnabled = true;
+            }
         }
         void WireName(string control, string key)
         {
@@ -560,7 +668,9 @@ namespace Efren.Panel
         }
         void SetNames(Dictionary<string, object> values)
         {
+            string oldJarvisName = jarvisName;
             fridayName = Convert.ToString(values["friday"]); jarvisName = Convert.ToString(values["jarvis"]);
+            ReplaceAssistantName(window, oldJarvisName, jarvisName);
             Find<TextBlock>("ConsoleTitle").Text = "Команды и озвучка · " + (File.Exists(Path.Combine(root, "lite-build.json")) ? jarvisName : fridayName);
             Find<TextBlock>("RepliesTitle").Text = "Ответы · " + fridayName;
             if (!Find<TextBox>("FridayName").IsKeyboardFocused) Find<TextBox>("FridayName").Text = fridayName;
@@ -569,6 +679,42 @@ namespace Efren.Panel
             Find<TextBlock>("JarvisHint").Text = "Обращение: «" + jarvisName + ", открой настройки»";
             Find<Button>("FridayLog").ToolTip = "Журнал и команды: " + fridayName;
             Find<Button>("JarvisLog").ToolTip = "Журнал: " + jarvisName;
+            if (jarvisCommandsTitle != null) jarvisCommandsTitle.Text = "Команды: " + jarvisName;
+        }
+        static string ReplaceWholeName(string value, string oldName, string newName)
+        {
+            if (String.IsNullOrEmpty(value) || String.IsNullOrEmpty(oldName)) return value;
+            int position = 0;
+            while ((position = value.IndexOf(oldName, position, StringComparison.Ordinal)) >= 0)
+            {
+                int after = position + oldName.Length;
+                bool leftIsWord = position > 0 && Char.IsLetterOrDigit(value[position - 1]);
+                bool rightIsWord = after < value.Length && Char.IsLetterOrDigit(value[after]);
+                if (!leftIsWord && !rightIsWord)
+                {
+                    value = value.Substring(0, position) + newName + value.Substring(after);
+                    position += newName.Length;
+                }
+                else position = after;
+            }
+            return value;
+        }
+        static void ReplaceAssistantName(DependencyObject parent, string oldName, string newName)
+        {
+            if (String.IsNullOrWhiteSpace(oldName) || oldName == newName) return;
+            var text = parent as TextBlock;
+            if (text != null && text.Text != null) text.Text = ReplaceWholeName(text.Text, oldName, newName);
+            var content = parent as ContentControl;
+            if (content != null && content.Content is string) content.Content = ReplaceWholeName((string)content.Content, oldName, newName);
+            var header = parent as HeaderedContentControl;
+            if (header != null && header.Header is string) header.Header = ReplaceWholeName((string)header.Header, oldName, newName);
+            var titleWindow = parent as Window;
+            if (titleWindow != null && titleWindow.Title != null) titleWindow.Title = ReplaceWholeName(titleWindow.Title, oldName, newName);
+            foreach (object child in LogicalTreeHelper.GetChildren(parent))
+            {
+                var dependencyChild = child as DependencyObject;
+                if (dependencyChild != null) ReplaceAssistantName(dependencyChild, oldName, newName);
+            }
         }
         static bool Flag(Dictionary<string, object> values, string key) { return values.ContainsKey(key) && values[key] is bool && (bool)values[key]; }
         async Task Refresh()
@@ -613,7 +759,10 @@ namespace Efren.Panel
                 var friday = (Dictionary<string, object>)data["friday"];
                 string status = !Flag(data, "bridge") ? "● Не подключена" : !Flag(friday, "workerReady") ? "● Запускает распознавание" : !Flag(friday, "ttsReady") ? "● Загружает голос" : "● Готова";
                 Find<TextBlock>("FridayState").Text = status;
-                Find<TextBlock>("JarvisState").Text = Flag(data, "jarvis_running") ? "● Запущен" : "○ Выключен";
+                string processState = data.ContainsKey("jarvis_state") ? Convert.ToString(data["jarvis_state"]) : (Flag(data, "jarvis_running") ? "running" : "stopped");
+                if (processState == "running" || processState == "stopped") jarvisTransition = "";
+                string visibleState = jarvisTransition == "stopping" ? "stopping" : processState;
+                Find<TextBlock>("JarvisState").Text = visibleState == "running" ? "● Запущен" : visibleState == "starting" ? "◌ Запускается…" : visibleState == "stopping" ? "◌ Останавливается…" : "○ Выключен";
                 Find<TextBlock>("Connection").Text = "Обновлено " + DateTime.Now.ToString("HH:mm:ss");
                 Measure();
             }

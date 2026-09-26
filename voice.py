@@ -61,7 +61,8 @@ class VoiceListener:
         self.whisper_model_name = (
             SHARED_STT_MODEL.name
             if self.uses_shared_stt
-            else str(config.get("whisper_model", "base"))
+            else ("GigaAM v3 RNN-T (CPU)" if self.uses_local_gigaam
+                  else str(config.get("whisper_model", "base")))
         )
         self.whisper_device = str(config.get("whisper_device", "cpu"))
         self.whisper_compute_type = str(config.get("whisper_compute_type", "int8"))

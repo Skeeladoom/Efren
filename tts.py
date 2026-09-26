@@ -205,8 +205,8 @@ class LocalTTS:
         self.rvc_enabled = bool(config.get("rvc_enabled", True))
         self.rvc_root = Path(config.get("rvc_root", r"F:\EFREN_v0.4_Local\rvc_engine"))
         self.rvc_python = Path(config.get("rvc_python", r"F:\EFREN_v0.4_Local\rvc_env\Scripts\python.exe"))
-        self.rvc_model = Path(config.get("rvc_model", r"F:\EFREN_v0.4_Local\rvc_models\pudge\pudge.pth"))
-        self.rvc_index = Path(config.get("rvc_index", r"F:\EFREN_v0.4_Local\rvc_models\pudge\added_IVF433_Flat_nprobe_1_pudge_v2.index"))
+        self.rvc_model = Path(config.get("rvc_model", r"F:\EFREN_v0.4_Local\rvc_models\oguzok\MaximLavrov.pth"))
+        self.rvc_index = Path(config.get("rvc_index", r"F:\EFREN_v0.4_Local\rvc_models\oguzok\added_IVF166_Flat_nprobe_1_MaximLavrov_v2.index"))
         self.rvc_f0_method = str(config.get("rvc_f0_method", "rmvpe")).lower().strip()
         self.rvc_index_rate = max(0.0, min(1.0, float(config.get("rvc_index_rate", 0.45))))
         # RVC supports protect only in the 0..0.5 range. Values above 0.5
