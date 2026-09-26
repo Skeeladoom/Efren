@@ -25,7 +25,7 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Files]
 ; Personal state survives both reinstall and automatic update.
-Source: "release-lite-clean\*"; DestDir: "{app}"; Excludes: "models\whisper-base\*;config.json;assistant_names.json;jarvis_settings.json;macro_phrases.json;lite-auth.json;logs\*;scenarios\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "release-lite-clean\*"; DestDir: "{app}"; Excludes: "models\whisper-base\*,config.json,assistant_names.json,jarvis_settings.json,macro_phrases.json,lite-auth.json,logs\*,scenarios\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "release-lite-clean\config.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
 Source: "release-lite-clean\assistant_names.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
 Source: "release-lite-clean\jarvis_settings.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
