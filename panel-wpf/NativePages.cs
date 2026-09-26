@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Microsoft.Win32;
 
@@ -294,8 +295,19 @@ namespace Efren.Panel
         readonly ComboBox target = new ComboBox { DisplayMemberPath = "Title", Margin = new Thickness(0, 0, 8, 8) };
         readonly TextBox file = PageUI.Input(), name = PageUI.Input(), phrase = PageUI.Input(), prompt = PageUI.Input(true), preview = PageUI.Input(true);
         readonly TextBlock status = PageUI.Text("Проверка плана ничего не выполняет.", true);
-        readonly DispatcherTimer timer = new DispatcherTimer();
+        readonly DispatcherTimer timer = new DispatcherTimer(), guideTimer = new DispatcherTimer();
+        readonly StackPanel launchFields = new StackPanel(), macroFields = new StackPanel();
+        readonly Border guide = new Border { Padding = new Thickness(16), Margin = new Thickness(0, 12, 8, 12), Visibility = Visibility.Collapsed };
+        readonly TextBlock guideText = PageUI.Text("", false);
         string token = "", savedTitle = ""; bool busy, loading;
+        int guideStep;
+        readonly string[] guideSteps = {
+            "Шаг 1 из 5. Выбери, что должен делать помощник: просто запускать программу или выполнять нажатия в уже открытом окне.",
+            "Шаг 2 из 5. Для запуска нажми «Выбрать приложение». Для нажатий выбери нужное открытое окно из списка.",
+            "Шаг 3 из 5. Если нужны нажатия, добавляй их готовыми кнопками. Параметр в добавленной строке сразу выделится — просто напечатай свой.",
+            "Шаг 4 из 5. Придумай короткое название и фразу без имени помощника, например «запусти доту».",
+            "Шаг 5 из 5. Нажми «Проверить», затем «Сохранить». «Испытать» действительно запускает сценарий и всегда просит подтверждение."
+        };
         internal static readonly string[][] CommandTemplates = {
             new[] { "Нажать клавишу", "нажми space", "space" },
             new[] { "Сочетание клавиш", "нажми ctrl+a", "ctrl+a" },
@@ -309,38 +321,60 @@ namespace Efren.Panel
         {
             this.backend = backend; this.root = root;
             var body = new StackPanel(); Content = new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-            body.Children.Add(mode); body.Children.Add(PageUI.Text("Открытое окно для нажатий")); body.Children.Add(target);
-            var pick = new WrapPanel(); body.Children.Add(pick);
-            pick.Children.Add(PageUI.Button("Обновить список окон", LoadWindows));
-            pick.Children.Add(PageUI.Button("Выбрать EXE / ярлык", delegate {
+            body.Children.Add(PageUI.Text("Создай голосовую команду за четыре понятных шага. Поля меняются в зависимости от выбранного действия.", true));
+            body.Children.Add(PageUI.Text("1. Что должен сделать помощник?")); body.Children.Add(mode);
+
+            launchFields.Children.Add(PageUI.Text("2. Какое приложение запустить?"));
+            var launchPick = new WrapPanel(); launchFields.Children.Add(launchPick);
+            launchPick.Children.Add(PageUI.Button("Выбрать приложение или ярлык", delegate {
                 var dialog = new OpenFileDialog { Filter = "Приложения и ярлыки|*.exe;*.lnk;*.url" };
                 if (dialog.ShowDialog(Window.GetWindow(this)) == true) file.Text = dialog.FileName;
                 return Task.FromResult(0);
             }));
-            body.Children.Add(PageUI.Text("Файл приложения (для запуска) / запасной EXE")); body.Children.Add(file);
-            body.Children.Add(PageUI.Text("Добавить команду кнопкой"));
-            body.Children.Add(PageUI.Text("Кнопки только дописывают строку в конец списка. Выделенные параметры можно сразу заменить. Для простого запуска программы команды не нужны.", true));
-            var templates = new WrapPanel(); body.Children.Add(templates);
+            launchFields.Children.Add(file);
+            launchFields.Children.Add(PageUI.Text("Больше ничего настраивать не нужно: помощник откроет выбранный файл.", true));
+            body.Children.Add(launchFields);
+
+            macroFields.Children.Add(PageUI.Text("2. В каком открытом окне выполнять действия?")); macroFields.Children.Add(target);
+            var pick = new WrapPanel(); macroFields.Children.Add(pick);
+            pick.Children.Add(PageUI.Button("Обновить список окон", LoadWindows));
+            pick.Children.Add(PageUI.Button("Указать приложение на случай, если окно закрыто", delegate {
+                var dialog = new OpenFileDialog { Filter = "Приложения и ярлыки|*.exe;*.lnk;*.url" };
+                if (dialog.ShowDialog(Window.GetWindow(this)) == true) file.Text = dialog.FileName;
+                return Task.FromResult(0);
+            }));
+            macroFields.Children.Add(PageUI.Text("3. Что сделать в этом окне?"));
+            macroFields.Children.Add(PageUI.Text("Нажимай готовые кнопки по порядку. После добавления замени выделенный пример своим значением.", true));
+            var templates = new WrapPanel(); macroFields.Children.Add(templates);
             foreach (var item in CommandTemplates) {
                 var template = item;
                 var button = PageUI.Button(template[0], delegate { InsertTemplate(template); return Task.FromResult(0); });
                 button.ToolTip = "Добавить: " + template[1]; templates.Children.Add(button);
             }
-            body.Children.Add(PageUI.Text("Твои команды — редактируй здесь, по одной на строку")); prompt.Height = 160; body.Children.Add(prompt);
-            body.Children.Add(PageUI.Text("Время — в секундах; клавиши — space, enter, right и т. п.; текст — латиницей; координаты мыши — X Y на экране. «Проверить план» проверяет запись, «Выполнить» запускает её после подтверждения.", true));
+            macroFields.Children.Add(PageUI.Text("Действия по порядку (одно на строку)")); prompt.Height = 160; macroFields.Children.Add(prompt);
+            macroFields.Children.Add(PageUI.Text("Время указывается в секундах, а координаты мыши — как X Y на экране. Макрос остановится, если выбранное окно потеряет фокус.", true));
             var help = new Expander { Header = "Поддерживаемые команды и примеры", Margin = new Thickness(0, 0, 0, 12) };
             help.SetResourceReference(Control.ForegroundProperty, "ThemeText");
-            help.Content = PageUI.Text("Запуск: выберите режим запуска и EXE/ярлык, задайте кодовую фразу.\nНажатия: выберите открытое окно локальной игры.\nнажми space · нажми ctrl+a · жди 1.5 · удерживай right 2\nкурсор 100 200 · клик 100 200 · текст Hello\nКлавиши: left/right/up/down, space, enter, esc, tab, f1–f12, a–z, 0–9.\nТекст — латиницей. Импортированный JSON поддерживает повторения.\nМакросы сетевых игр запрещены; простой запуск разрешён.\nСтоп: мышь в левый верхний угол. Потеря фокуса останавливает следующие действия.", true); body.Children.Add(help);
-            body.Children.Add(PageUI.Text("Название сценария")); name.Text = "Новый сценарий"; body.Children.Add(name);
-            body.Children.Add(PageUI.Text("Кодовая фраза (без имени помощника)")); body.Children.Add(phrase);
+            help.Content = PageUI.Text("нажми space · нажми ctrl+a · жди 1.5 · удерживай right 2\nкурсор 100 200 · клик 100 200 · текст Hello\nКлавиши: left/right/up/down, space, enter, esc, tab, f1–f12, a–z, 0–9.\nИмпортированный JSON по-прежнему поддерживается для сложных сценариев и повторений.\nМакросы сетевых игр запрещены; простой запуск игры разрешён. Стоп: мышь в левый верхний угол.", true); macroFields.Children.Add(help);
+            body.Children.Add(macroFields);
+
+            body.Children.Add(PageUI.Text("4. Как назвать и запускать сценарий?"));
+            body.Children.Add(PageUI.Text("Название видно только тебе, например «Открыть Dota 2»", true)); name.Text = "Новый сценарий"; body.Children.Add(name);
+            body.Children.Add(PageUI.Text("Что сказать после имени помощника? Например: «запусти доту»", true)); body.Children.Add(phrase);
             var buttons = new WrapPanel(); body.Children.Add(buttons);
-            buttons.Children.Add(PageUI.Button("Проверить план", async delegate { await Plan(); }));
+            buttons.Children.Add(PageUI.Button("Проверить", async delegate { await Plan(); }));
             buttons.Children.Add(PageUI.Button("Открыть сценарий", Open));
-            buttons.Children.Add(PageUI.Button("Сохранить .jmacro", Save));
-            buttons.Children.Add(PageUI.Button("Выполнить", Run));
-            preview.IsReadOnly = true; preview.Height = 220; preview.FontFamily = new FontFamily("Consolas"); body.Children.Add(preview); body.Children.Add(status);
+            buttons.Children.Add(PageUI.Button("Сохранить и привязать фразу", Save));
+            buttons.Children.Add(PageUI.Button("Испытать", Run));
+            preview.IsReadOnly = true; preview.Height = 220; preview.FontFamily = new FontFamily("Consolas");
+            var technical = new Expander { Header = "Технический план (для опытных пользователей)", Content = preview, Margin = new Thickness(0, 8, 8, 8) };
+            technical.SetResourceReference(Control.ForegroundProperty, "ThemeText"); body.Children.Add(technical); body.Children.Add(status);
+
+            guide.SetResourceReference(Border.BackgroundProperty, "ThemeCard"); guide.SetResourceReference(Border.BorderBrushProperty, "ThemeAccent"); guide.BorderThickness = new Thickness(1);
+            guide.Child = guideText; body.Children.Add(guide);
+            body.Children.Add(PageUI.Button("▶ Показать инструкцию ещё раз", delegate { StartGuide(); return Task.FromResult(0); }));
             foreach (var field in new[] { file, name, phrase, prompt }) field.TextChanged += delegate { if (!loading) token = ""; };
-            mode.SelectionChanged += delegate { token = ""; };
+            mode.SelectionChanged += delegate { token = ""; UpdateMode(); };
             target.SelectionChanged += delegate { if (!loading) { savedTitle = ""; token = ""; } };
             timer.Interval = TimeSpan.FromSeconds(1);
             timer.Tick += async delegate {
@@ -350,8 +384,32 @@ namespace Efren.Panel
                     status.Text = PageUI.Str(data, "message"); if (!PageUI.Flag(data, "running")) timer.Stop();
                 } catch (Exception ex) { status.Text = ex.Message; timer.Stop(); }
             };
-            Unloaded += delegate { timer.Stop(); };
-            IsVisibleChanged += async delegate { if (IsVisible) { await LoadWindows(); } else timer.Stop(); };
+            guideTimer.Interval = TimeSpan.FromSeconds(3.2);
+            guideTimer.Tick += delegate { ShowGuideStep(); };
+            Unloaded += delegate { timer.Stop(); guideTimer.Stop(); };
+            IsVisibleChanged += async delegate { if (IsVisible) { await LoadWindows(); } else { timer.Stop(); guideTimer.Stop(); } };
+            UpdateMode();
+        }
+
+        void UpdateMode()
+        {
+            bool launch = mode.SelectedIndex == 0;
+            launchFields.Visibility = launch ? Visibility.Visible : Visibility.Collapsed;
+            macroFields.Visibility = launch ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        Task StartGuide()
+        {
+            guideStep = 0; guide.Visibility = Visibility.Visible; guideTimer.Stop(); ShowGuideStep(); guideTimer.Start();
+            guide.BringIntoView(); return Task.FromResult(0);
+        }
+
+        void ShowGuideStep()
+        {
+            if (guideStep >= guideSteps.Length) { guideTimer.Stop(); guideText.Text = "Готово. Теперь заполни четыре шага сверху. Инструкцию можно запустить снова в любой момент."; return; }
+            guideText.Text = guideSteps[guideStep++];
+            guideText.Opacity = 0;
+            guideText.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(350)));
         }
         internal void SmokeTemplates()
         {
@@ -365,6 +423,11 @@ namespace Efren.Panel
                     if (!prompt.Text.StartsWith(before, StringComparison.Ordinal) || prompt.SelectedText != template[2] || mode.SelectedIndex != 1)
                         throw new InvalidOperationException("Command template insertion failed: " + template[0]);
                 }
+                UpdateMode();
+                if (launchFields.Visibility != Visibility.Collapsed || macroFields.Visibility != Visibility.Visible)
+                    throw new InvalidOperationException("Macro mode does not show the correct fields.");
+                guideStep = 0; ShowGuideStep();
+                if (string.IsNullOrWhiteSpace(guideText.Text)) throw new InvalidOperationException("Guide did not start.");
             } finally { prompt.Text = previous; mode.SelectedIndex = previousMode; status.Text = "Проверка плана ничего не выполняет."; }
         }
         void InsertTemplate(string[] template)
