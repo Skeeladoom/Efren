@@ -1,4 +1,4 @@
-"""Build the 0.1.7 targeted update without repacking unchanged AI models."""
+"""Build the 0.1.8 targeted update without repacking unchanged AI models."""
 import hashlib
 import json
 import zipfile
@@ -7,8 +7,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent / "release-lite-clean"
 OUTPUT = Path(__file__).resolve().parent / "EFREN-Lite-Patch.zip"
 FILES = {
-    "apply-lite-patch.ps1", "lite_policy.py", "main.py", "panel_backend.py",
-    "router.py", "stt_variants.py", "tools.py", "lite-build.json",
+    "apply-lite-patch.ps1", "lite_policy.py", "main.py", "macro_runner.py",
+    "panel_backend.py", "panel_features.py", "router.py", "stt_variants.py",
+    "tools.py", "lite-build.json", "rvc_engine/jarvis_bridge.py",
     "panel-wpf/App.cs", "panel-wpf/MainWindow.xaml",
     "panel-wpf/NativePages.cs", "panel-wpf/bin/FridayPanel.exe",
 }
@@ -19,6 +20,11 @@ PREFIXES = (
     "runtime/python/Lib/site-packages/pymorphy3_dicts_ru-2.4.417150.4580142.dist-info/",
     "runtime/python/Lib/site-packages/dawg_python/",
     "runtime/python/Lib/site-packages/dawg2_python-0.9.0.dist-info/",
+    # 0.1.7's full installer excluded every directory named tests, including a
+    # NumPy module imported by SciPy. Ship a complete known-good NumPy tree.
+    "runtime/python/Lib/site-packages/numpy/",
+    "runtime/python/Lib/site-packages/numpy-2.2.6.dist-info/",
+    "runtime/python/Lib/site-packages/numpy.libs/",
 )
 
 
@@ -40,7 +46,7 @@ def build():
             selected.append(path)
     entries = [{"path": p.relative_to(ROOT).as_posix(), "size": p.stat().st_size,
                 "sha256": sha256(p)} for p in sorted(selected)]
-    manifest = {"format": "EFREN-LITE-PATCH-1", "to_version": "0.1.7", "files": entries}
+    manifest = {"format": "EFREN-LITE-PATCH-1", "to_version": "0.1.8", "files": entries}
     with zipfile.ZipFile(OUTPUT, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         archive.writestr("patch-manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
         for path in selected:
