@@ -411,7 +411,7 @@ namespace Efren.Panel
         T Find<T>(string name) where T : FrameworkElement { return (T)window.FindName(name); }
         void ConfigureLite()
         {
-            window.Title = "EFREN — Джарвис Lite (тестовая сборка)";
+            window.Title = "EFREN — Джарвис Lite " + InstalledVersion() + " (тестовая сборка)";
             // Keep named controls alive for shared bindings, but hide whole cards.
             foreach (string name in new[] { "FridayName", "RepliesTitle", "FriendsVoice", "QwenOff" })
             {
@@ -692,7 +692,10 @@ namespace Efren.Panel
                     return;
                 }
                 Dictionary<string, object> setup = null, patch = null;
-                foreach (object item in (object[])release["assets"])
+                // JavaScriptSerializer returns ArrayList on .NET Framework,
+                // not necessarily object[]. Enumerate through the common
+                // non-generic interface so GitHub assets work on both forms.
+                foreach (object item in (System.Collections.IEnumerable)release["assets"])
                 {
                     var asset = (Dictionary<string, object>)item;
                     if (String.Equals(Convert.ToString(asset["name"]), "EFREN-Lite-Setup.exe", StringComparison.OrdinalIgnoreCase)) setup = asset;
@@ -750,8 +753,8 @@ namespace Efren.Panel
                 closing = true;
                 window.Close();
             }
-            catch (WebException ex) { status.Text = "Не удалось проверить обновления: " + ex.Message; }
-            catch (Exception ex) { status.Text = "Обновление отменено: " + ex.Message; }
+            catch (WebException ex) { status.Text = "Установлена версия " + InstalledVersion() + ". Не удалось проверить обновления: " + ex.Message; }
+            catch (Exception ex) { status.Text = "Установлена версия " + InstalledVersion() + ". Обновление отменено: " + ex.Message; }
             finally
             {
                 updateBusy = false;
