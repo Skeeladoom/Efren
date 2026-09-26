@@ -213,7 +213,9 @@ class LocalTTS:
         # silently disable consonant protection inside the inference pipeline.
         self.rvc_protect = max(0.0, min(0.5, float(config.get("rvc_protect", 0.28))))
         self.rvc_filter_radius = max(0, min(7, int(config.get("rvc_filter_radius", 3))))
-        self.rvc_timeout = float(config.get("rvc_timeout_seconds", 25.0))
+        # Voice conversion is optional. Never hold spoken feedback for minutes
+        # when a DirectML driver or an unsupported model stalls.
+        self.rvc_timeout = max(3.0, min(12.0, float(config.get("rvc_timeout_seconds", 10.0))))
         self.rvc_cpu_threads = max(1, min(32, int(config.get("rvc_cpu_threads", 4))))
         self.rvc_device = str(config.get("rvc_device", "auto")).lower().strip()
         if self.rvc_device not in {"auto", "cpu", "directml"}:
@@ -545,15 +547,9 @@ class LocalTTS:
                 answer = self._read_rvc_reply(self.rvc_timeout)
                 request_ms = (time.perf_counter() - request_started) * 1000.0
                 if answer is None:
-                    print(f"[TTS RVC ERROR] Голосовая модель не ответила за {self.rvc_timeout:.1f} с; базовый голос не воспроизводится.")
-                    recovery_started = time.perf_counter()
+                    print(f"[TTS RVC ERROR] Голосовая модель не ответила за {self.rvc_timeout:.1f} с; RVC отключён до перезапуска, используется Piper.")
                     self._stop_rvc_bridge()
-                    try:
-                        self._start_rvc()
-                    except Exception as exc:
-                        print(f"[TTS RVC ERROR] Перезапуск модели не удался: {exc}")
-                    finally:
-                        bridge_recovery_ms += (time.perf_counter() - recovery_started) * 1000.0
+                    self.rvc_enabled = False
                     return False
                 if answer.get("output"):
                     return output.is_file() and output.stat().st_size > 0

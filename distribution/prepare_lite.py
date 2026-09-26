@@ -38,7 +38,7 @@ CONFIG = {
     "piper_model": "tts_models/ru_RU-ruslan-medium.onnx",
     "rvc_enabled": False, "rvc_required": False, "rvc_cpu_threads": 4,
     "rvc_root": "rvc_engine", "rvc_python": "runtime/python/python.exe",
-    "rvc_timeout_seconds": 60,
+    "rvc_timeout_seconds": 10,
     "wake_free_command_fallback": True,
 }
 SETTINGS = {

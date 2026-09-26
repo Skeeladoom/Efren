@@ -90,31 +90,45 @@ def _optimize_rvc(model, index):
     logical = max(1, os.cpu_count() or 1)
     # Two sensible CPU points are enough; testing every thread count made the
     # first voice selection take several minutes on older processors.
-    cpu_threads = sorted(set(x for x in (2, 4) if x <= logical))
+    cpu_threads = [min(4, logical)]
     if not cpu_threads: cpu_threads = [1]
-    candidates = [("cpu", value) for value in cpu_threads] + [("directml", min(4, logical))]
+    candidates = [("cpu", value) for value in cpu_threads]
+    # DirectML is meant here for AMD/Intel integrated graphics. On Nvidia the
+    # CUDA backend is the appropriate future path; RVC over DirectML proved
+    # unstable on Pascal and could hang an otherwise completed reply.
+    try:
+        probe = subprocess.run([str(python), "-c",
+            "import torch_directml as d; print(d.device_name(d.default_device()))"],
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=15)
+        directml_name = probe.stdout.strip().casefold()
+        if probe.returncode == 0 and directml_name and "nvidia" not in directml_name:
+            candidates.append(("directml", min(4, logical)))
+    except (OSError, subprocess.SubprocessError):
+        pass
     best = None
     for number, (device, threads) in enumerate(candidates, 1):
         with _voice_lock:
             label = "видеоядро / DirectML" if device == "directml" else f"CPU, {threads} потоков"
             _voice_job.update(message="Проверка RVC: " + label + "…", downloaded=number - 1, total=len(candidates))
-        output1 = benchmark.with_name(f"rvc-test-{device}-{threads}-1.wav")
-        output2 = benchmark.with_name(f"rvc-test-{device}-{threads}-2.wav")
+        output1 = benchmark.with_name(f"rvc-test-{device}-{threads}.wav")
         requests = "\n".join(json.dumps({"input": str(benchmark), "output": str(output), "method": "rmvpe",
                                           "index_rate": 0.45, "protect": 0.28, "filter_radius": 3})
-                             for output in (output1, output2)) + "\n"
+                             for output in (output1,)) + "\n"
         started = time.perf_counter()
         process = subprocess.run([str(python), str(bridge), str(model), str(index), str(threads), device],
                                  cwd=engine, input=requests, text=True, encoding="utf-8", errors="replace",
                                  capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=180)
         elapsed = time.perf_counter() - started
-        good = process.returncode == 0 and output1.is_file() and output2.is_file() and process.stdout.count('"status": "ready"') >= 3
-        for output in (output1, output2): output.unlink(missing_ok=True)
+        good = process.returncode == 0 and output1.is_file() and process.stdout.count('"status": "ready"') >= 2
+        output1.unlink(missing_ok=True)
         # DirectML reports a numbered torch device (usually privateuseone:0),
         # while CPU is reported without an index.
         expected_device = '"device": "privateuseone' if device == "directml" else '"device": "cpu"'
         good = good and expected_device in process.stdout
-        if good and (best is None or elapsed < best[0]): best = (elapsed, threads, device)
+        # A mode taking longer than this for one deliberately short phrase is
+        # unsuitable for interactive replies even if it technically works.
+        if good and elapsed <= 35.0 and (best is None or elapsed < best[0]): best = (elapsed, threads, device)
     benchmark.unlink(missing_ok=True)
     if best is None: raise RuntimeError("RVC не прошёл проверку ни на CPU, ни через DirectML")
     config = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.exists() else {}
@@ -163,7 +177,7 @@ def voice_store(request):
                        "rvc_root": str(panel.BASE_DIR / "rvc_engine"),
                        "rvc_python": str(panel.BASE_DIR / "runtime" / "python" / "python.exe"),
                        "rvc_model": str(model), "rvc_index": str(index) if index.is_file() else "",
-                       "rvc_timeout_seconds": 60})
+                       "rvc_timeout_seconds": 10})
         atomic_json(config_path, config)
         with _voice_lock:
             if _voice_job["running"]: raise ValueError("Дождитесь завершения текущей операции")

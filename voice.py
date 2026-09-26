@@ -72,7 +72,9 @@ class VoiceListener:
         self.max_utterance_seconds = float(config.get("whisper_max_utterance_seconds", 12.0))
         self.min_utterance_seconds = float(config.get("whisper_min_utterance_seconds", 0.25))
         self.energy_threshold = float(config.get("whisper_energy_threshold", 0.012))
-        self.wake_free_command_fallback = bool(config.get("wake_free_command_fallback", False))
+        self.wake_free_command_fallback = bool(config.get(
+            "wake_free_command_fallback", str(config.get("edition", "")).lower() == "lite"
+        ))
 
         print(f"[VOICE VERSION] {VOICE_CODE_VERSION}")
         self.model = None
