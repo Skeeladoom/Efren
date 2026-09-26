@@ -1008,26 +1008,51 @@ class LocalRouter:
     # ROUTER
     # =========================================================
 
-    @staticmethod
-    def macro_for_phrase(text):
+    def macro_for_phrase(self, text):
         try:
             registry = json.loads(MACRO_PHRASES_FILE.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
             return None
         if not isinstance(registry, dict):
             return None
-        wanted = " ".join(str(text or "").casefold().replace("ё", "е").split())
+        wanted = self.normalize_stt(" ".join(str(text or "").casefold().replace("ё", "е").split()))
         try:
             disabled = json.loads(MACRO_DISABLED_FILE.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
             disabled = []
-        if wanted in disabled:
+        disabled_normalized = {self.normalize_stt(item) for item in disabled if isinstance(item, str)}
+        if wanted in disabled_normalized:
             return None
-        scenario = registry.get(wanted)
+        normalized_registry = {self.normalize_stt(key): value for key, value in registry.items() if isinstance(key, str)}
+        scenario = normalized_registry.get(wanted)
+        operation = "run"
+        if not scenario:
+            words = wanted.split()
+            if words and words[0] in {"открой", "запусти"}:
+                other = "запусти" if words[0] == "открой" else "открой"
+                scenario = normalized_registry.get(" ".join([other] + words[1:]))
+            elif words and words[0] == "закрой":
+                # A launch command automatically gets a safe inverse command:
+                # "открой/запусти X" -> "закрой X".
+                for verb in ("открой", "запусти"):
+                    candidate = normalized_registry.get(" ".join([verb] + words[1:]))
+                    if candidate:
+                        scenario = candidate
+                        operation = "close"
+                        break
         if not scenario:
             return None
         path = Path(str(scenario)).resolve()
-        return str(path) if path.is_file() and path.suffix.casefold() == ".jmacro" else None
+        if not path.is_file() or path.suffix.casefold() != ".jmacro":
+            return None
+        if operation == "close":
+            try:
+                document = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                return None
+            if document.get("тип") != "launch":
+                return None
+        return str(path), operation
 
     def route(
         self,
@@ -1088,13 +1113,16 @@ class LocalRouter:
         # assistant are handled by FULL EXIT below and can never reach these.
         if t in {
             "выключи компьютер", "выключи комп", "выключи пк",
+            "выключи компа", "выключить компьютер", "выключить комп", "выключить пк",
             "отключи компьютер", "отключи комп", "отключи пк",
+            "выруби компьютер", "выруби комп", "выруби пк",
             "заверши работу компьютера", "заверши работу пк",
         }:
             return Route("computer_shutdown", {})
 
         if t in {
             "перезагрузи компьютер", "перезагрузи комп", "перезагрузи пк",
+            "перезагрузи компа", "перезагрузить компьютер", "перезагрузить комп", "перезагрузить пк",
             "перезагрузка компьютер", "перезагрузка комп", "перезагрузка пк",
             "перезапусти компьютер", "перезапусти комп", "перезапусти пк",
             "перезагрузка компьютера", "перезагрузка компа", "перезагрузка пк",
@@ -1103,9 +1131,10 @@ class LocalRouter:
 
         # A phrase explicitly created by the owner has priority over built-in
         # commands. This lets the constructor redefine even ordinary wording.
-        macro_path = self.macro_for_phrase(t)
-        if macro_path:
-            return Route("macro_phrase", {"path": macro_path})
+        macro_match = self.macro_for_phrase(t)
+        if macro_match:
+            macro_path, macro_operation = macro_match
+            return Route("macro_close" if macro_operation == "close" else "macro_phrase", {"path": macro_path})
 
         # =====================================================
         # PASSIVE SLEEP

@@ -30,6 +30,33 @@ def launch_application(target):
     os.startfile(str(path.resolve()))
 
 
+def close_saved_application(scenario_path):
+    """Close the executable used by a saved launch scenario."""
+    path = Path(scenario_path).resolve()
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if document.get("тип") != "launch":
+        raise ValueError("Антикоманда доступна только для запуска приложений.")
+    target = Path(str(document.get("файл", "")).strip().strip('"')).resolve()
+    if not target.is_file():
+        raise FileNotFoundError("Файл приложения больше не найден.")
+    executable = target
+    if target.suffix.casefold() == ".lnk":
+        script = "$s=(New-Object -ComObject WScript.Shell).CreateShortcut($args[0]);[Console]::Write($s.TargetPath)"
+        result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script, str(target)],
+                                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=15)
+        resolved = Path(result.stdout.strip())
+        if result.returncode != 0 or not resolved.name:
+            raise RuntimeError("Не удалось определить программу внутри ярлыка.")
+        executable = resolved
+    if executable.suffix.casefold() != ".exe":
+        raise ValueError("Автоматическое закрытие поддерживается для EXE и ярлыков на EXE.")
+    result = subprocess.run(["taskkill.exe", "/IM", executable.name, "/T"], capture_output=True,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    if result.returncode not in (0, 128):
+        raise RuntimeError("Windows не смогла закрыть приложение.")
+
+
 def explicit_plan(prompt):
     """Small documented command language, no model required."""
     actions = []
@@ -599,8 +626,11 @@ def run_saved_scenario(scenario_path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--run", dest="scenario")
+    parser.add_argument("--close", dest="close_scenario")
     arguments = parser.parse_args()
     if arguments.scenario:
         run_saved_scenario(arguments.scenario)
+    elif arguments.close_scenario:
+        close_saved_application(arguments.close_scenario)
     else:
         MacroWindow().run()

@@ -70,6 +70,7 @@ DEFAULT_RUNTIME_SETTINGS = {
 
 WINDOWS_ROUTE_KINDS = {
     "macro_phrase",
+    "macro_close",
     "open_app",
     "close_app",
     "get_active_window",
@@ -1484,6 +1485,17 @@ class Jarvis:
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             return f"Запускаю сценарий «{scenario.stem}»."
+
+        if kind == "macro_close":
+            runner = BASE_DIR / "macro_runner.py"
+            scenario = Path(args.get("path", ""))
+            if not runner.is_file() or not scenario.is_file():
+                return "Сценарий не найден."
+            pythonw = Path(sys.executable).with_name("pythonw.exe")
+            executable = pythonw if pythonw.is_file() else Path(sys.executable)
+            subprocess.Popen([str(executable), str(runner), "--close", str(scenario)],
+                             cwd=str(BASE_DIR), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            return f"Закрываю приложение из сценария «{scenario.stem}»."
 
         if kind == "open_app":
             return (

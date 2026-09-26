@@ -28,8 +28,28 @@ class LiteFeatureTests(unittest.TestCase):
         router = LocalRouter(["джарвис"], MagicMock())
         self.assertEqual(router.route("выключи компьютер").kind, "computer_shutdown")
         self.assertEqual(router.route("перезагрузи пк").kind, "computer_restart")
+        self.assertEqual(router.route("выключи комп").kind, "computer_shutdown")
+        self.assertEqual(router.route("выруби пк").kind, "computer_shutdown")
+        self.assertEqual(router.route("перезагрузить компьютер").kind, "computer_restart")
         self.assertEqual(router.route("выключись").kind, "exit")
         self.assertEqual(router.route("останови джарвиса").kind, "exit")
+
+    def test_launch_macros_have_open_start_alias_and_close_inverse(self):
+        import router as router_module
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scenario = root / "dota.jmacro"
+            scenario.write_text(json.dumps({"формат": "JARVIS-MACRO-2", "тип": "launch",
+                                            "файл": str(root / "dota2.exe")}, ensure_ascii=False), encoding="utf-8")
+            registry = root / "macro_phrases.json"
+            registry.write_text(json.dumps({"открой доту": str(scenario)}, ensure_ascii=False), encoding="utf-8")
+            disabled = root / "macro_disabled.json"
+            disabled.write_text("[]", encoding="utf-8")
+            with patch.object(router_module, "MACRO_PHRASES_FILE", registry), \
+                 patch.object(router_module, "MACRO_DISABLED_FILE", disabled):
+                local = LocalRouter(["джарвис"], MagicMock())
+                self.assertEqual(local.route("запусти доту").kind, "macro_phrase")
+                self.assertEqual(local.route("закрой доту").kind, "macro_close")
 
     def test_pymorphy_generates_real_dima_forms(self):
         from stt_variants import generate_forms
