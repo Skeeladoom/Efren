@@ -49,6 +49,22 @@ class WindowsTools:
 
     WM_CLOSE = 0x0010
 
+    def computer_power(self, restart=False):
+        """Request an immediate Windows shutdown/restart without a shell."""
+        if os.name != "nt":
+            raise ToolError("Команда питания доступна только в Windows.")
+        executable = Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32" / "shutdown.exe"
+        if not executable.is_file():
+            raise ToolError("Windows shutdown.exe не найден.")
+        subprocess.Popen(
+            [str(executable), "/r" if restart else "/s", "/t", "0"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return "Перезагружаю компьютер." if restart else "Выключаю компьютер."
+
     def __init__(self, config, base_dir):
         self.config = config
         self.base_dir = Path(base_dir)

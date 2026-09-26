@@ -8,11 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from discord_tools import parse_discord_voice_command
+from stt_variants import read_dictionary, normalize_text as normalize_variant_text
 
 
 ROUTER_CODE_VERSION = "JARVIS-ROUTER-v0.9.2-JARVIS-WORD-VARIANTS"
 MACRO_PHRASES_FILE = Path(__file__).resolve().parent / "macro_phrases.json"
 MACRO_DISABLED_FILE = Path(__file__).resolve().parent / "macro_disabled.json"
+STT_VARIANTS_FILE = Path(__file__).resolve().parent / "stt_variants.json"
 
 
 @dataclass
@@ -588,6 +590,10 @@ class LocalRouter:
                 text,
             )
 
+        # User-selected real word forms are an extra layer after the built-in
+        # ASR fixes. Replacement is boundary-aware; substrings are untouched.
+        text = normalize_variant_text(text, read_dictionary(STT_VARIANTS_FILE))
+
         text = self.norm(text)
 
         # Small typo-tolerance layer for command vocabulary.  It deliberately
@@ -603,7 +609,7 @@ class LocalRouter:
             "помощь", "помоги", "помощи",
             "журнал", "журнала", "журнале",
             "команды", "команда", "команду", "команд",
-            "выключись", "выключи", "выключиться", "выключение",
+            "выключись", "выключи", "выключиться", "выключение", "останови",
             "отключись", "отключи", "отключение",
             "перезапусти", "перезапуск", "перезапустить", "перезапускай",
             "поставь", "поставить", "установи", "установить", "установка",
@@ -1031,6 +1037,14 @@ class LocalRouter:
             text
         )
 
+        # Protect assistant-stop phrases before strip_wake removes the name.
+        # This makes "закрой Джарвиса" an assistant command, never a window
+        # close or computer power command.
+        stop_actions = ("выключи", "закрой", "останови")
+        assistant_names = tuple(dict.fromkeys(wake_aliases("jarvis", self.wake_words) + self.wake_words))
+        if any(normalized == action + " " + name for action in stop_actions for name in assistant_names):
+            return Route("exit", {})
+
         t = self.strip_wake(
             normalized
         )
@@ -1070,6 +1084,23 @@ class LocalRouter:
                 },
             )
 
+        # Computer power commands are intentionally exact. Phrases naming the
+        # assistant are handled by FULL EXIT below and can never reach these.
+        if t in {
+            "выключи компьютер", "выключи комп", "выключи пк",
+            "отключи компьютер", "отключи комп", "отключи пк",
+            "заверши работу компьютера", "заверши работу пк",
+        }:
+            return Route("computer_shutdown", {})
+
+        if t in {
+            "перезагрузи компьютер", "перезагрузи комп", "перезагрузи пк",
+            "перезагрузка компьютер", "перезагрузка комп", "перезагрузка пк",
+            "перезапусти компьютер", "перезапусти комп", "перезапусти пк",
+            "перезагрузка компьютера", "перезагрузка компа", "перезагрузка пк",
+        }:
+            return Route("computer_restart", {})
+
         # A phrase explicitly created by the owner has priority over built-in
         # commands. This lets the constructor redefine even ordinary wording.
         macro_path = self.macro_for_phrase(t)
@@ -1106,6 +1137,7 @@ class LocalRouter:
             "полностью отключись",
             "выключи джарвиса",
             "закрой джарвиса",
+            "останови джарвиса",
             "заверши джарвиса",
             "джарвис выключись",
             "джарвис отключись",

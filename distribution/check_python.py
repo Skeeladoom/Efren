@@ -16,14 +16,15 @@ def check(staging):
     env["PYTHONIOENCODING"] = "utf-8"
     env["PATH"] = str(Path(env["SYSTEMROOT"]) / "System32")
     probe = (
-        "import sys,json,tkinter,PIL,panel_backend; "
+        "import sys,json,tkinter,PIL,pymorphy3,panel_backend; "
         "from pathlib import Path; "
         "root=Path.cwd(); "
         "assert Path(sys.executable).resolve().is_relative_to(root); "
         "assert Path(PIL.__file__).resolve().is_relative_to(root); "
         "assert panel_backend.panel.worker_python_path()==Path(sys.executable); "
         "tk=tkinter.Tk(); tk.withdraw(); tk.update(); tk.destroy(); "
-        "print(json.dumps({'python':sys.version.split()[0],'pillow':PIL.__version__})); "
+        "assert pymorphy3.MorphAnalyzer().parse('диме')[0].normal_form == 'дима'; "
+        "print(json.dumps({'python':sys.version.split()[0],'pillow':PIL.__version__,'pymorphy3':pymorphy3.__version__})); "
         "panel_backend.serve()"
     )
     result = subprocess.run([str(python), "-s", "-c", probe], cwd=staging, env=env,
@@ -35,7 +36,7 @@ def check(staging):
     versions = json.loads(lines[0])
     response = json.loads(lines[-1])
     assert response["ok"] is False and "пароль" in response["error"]
-    print("PASS: bundled Python", versions["python"], "; Pillow", versions["pillow"],
+    print("PASS: bundled Python", versions["python"], "; Pillow", versions["pillow"], "; pymorphy3", versions["pymorphy3"],
           "; Tk; backend imports; bundled worker selection; protected stdio protocol.")
 
 

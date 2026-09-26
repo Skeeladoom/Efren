@@ -17,10 +17,12 @@ class LitePatchTests(unittest.TestCase):
                 (tree / "panel-wpf/bin").mkdir(parents=True)
                 (tree / "app.py").write_text("old", encoding="utf-8")
                 (tree / "config.json").write_text('{"personal":true}', encoding="utf-8")
+                (tree / "stt_variants.json").write_text('{"дима":["диме"]}', encoding="utf-8")
                 (tree / "lite-build.json").write_text(json.dumps({"version": "0.1.7"}), encoding="utf-8")
                 shutil.copyfile(Path(r"C:\Windows\System32\where.exe"), tree / "panel-wpf/bin/FridayPanel.exe")
             (new / "app.py").write_text("new", encoding="utf-8")
             (new / "config.json").write_text('{"personal":false}', encoding="utf-8")
+            (new / "stt_variants.json").write_text('{"wrong":[]}', encoding="utf-8")
             package = root / "EFREN-Lite-Patch.zip"
             build(old, new, package)
             result = subprocess.run([
@@ -31,6 +33,7 @@ class LitePatchTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual((installed / "app.py").read_text(encoding="utf-8"), "new")
             self.assertEqual((installed / "config.json").read_text(encoding="utf-8"), '{"personal":true}')
+            self.assertEqual((installed / "stt_variants.json").read_text(encoding="utf-8"), '{"дима":["диме"]}')
 
 
 if __name__ == "__main__":

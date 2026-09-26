@@ -19,7 +19,7 @@ def check_request(request, lite):
     if not lite:
         return
     action = request.get("action")
-    allowed = action in {"status", "authenticate", "project", "macros", "voice_store", "backup", "jarvis",
+    allowed = action in {"status", "authenticate", "project", "macros", "voice_store", "stt_variants", "backup", "jarvis",
                          "console", "favorite", "journal_settings", "diagnostics", "startup", "full_shutdown"}
     if action == "logs":
         allowed = request.get("source") == "jarvis"

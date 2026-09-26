@@ -95,6 +95,8 @@ WINDOWS_ROUTE_KINDS = {
     "screenshot",
     "volume",
     "time",
+    "computer_shutdown",
+    "computer_restart",
 }
 
 
@@ -1650,6 +1652,12 @@ class Jarvis:
                 self.tools
                 .get_time()
             )
+
+        if kind == "computer_shutdown":
+            return self.tools.computer_power(restart=False)
+
+        if kind == "computer_restart":
+            return self.tools.computer_power(restart=True)
 
         # =====================================================
         # QWEN

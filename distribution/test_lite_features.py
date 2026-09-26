@@ -9,9 +9,43 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import panel_backend as backend
 from lite_runtime import startup_file
 from distribution.prepare_lite import SOURCES, SETTINGS
+from router import LocalRouter
+from stt_variants import normalize_text, read_dictionary, save_selected
 
 
 class LiteFeatureTests(unittest.TestCase):
+    def test_stt_variants_use_word_boundaries_and_preserve_builtin_layer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "stt_variants.json"
+            save_selected(path, "дима", ["дима", "диме", "диму"])
+            dictionary = read_dictionary(path)
+            self.assertEqual(normalize_text("скажи диме привет", dictionary), "скажи дима привет")
+            self.assertEqual(normalize_text("диметра рядом", dictionary), "диметра рядом")
+        router = LocalRouter(["джарвис"], MagicMock())
+        self.assertEqual(router.normalize_stt("аткрой настройки"), "открой настройки")
+
+    def test_computer_power_routes_do_not_capture_jarvis_exit(self):
+        router = LocalRouter(["джарвис"], MagicMock())
+        self.assertEqual(router.route("выключи компьютер").kind, "computer_shutdown")
+        self.assertEqual(router.route("перезагрузи пк").kind, "computer_restart")
+        self.assertEqual(router.route("выключись").kind, "exit")
+        self.assertEqual(router.route("останови джарвиса").kind, "exit")
+
+    def test_pymorphy_generates_real_dima_forms(self):
+        from stt_variants import generate_forms
+        forms = generate_forms("Дима")
+        for value in ("Дима", "Димы", "Диме", "Диму", "Димой", "Димою"):
+            self.assertIn(value, forms)
+
+    def test_power_tool_uses_windows_shutdown_without_a_shell(self):
+        from tools import WindowsTools
+        tool = WindowsTools.__new__(WindowsTools)
+        with patch("tools.subprocess.Popen") as popen:
+            self.assertEqual(tool.computer_power(restart=True), "Перезагружаю компьютер.")
+        arguments = popen.call_args.args[0]
+        self.assertTrue(str(arguments[0]).lower().endswith("shutdown.exe"))
+        self.assertEqual(arguments[1:], ["/r", "/t", "0"])
+
     def test_voice_status_uses_installed_voice_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

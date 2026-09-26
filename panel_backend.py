@@ -13,6 +13,7 @@ import ctypes
 import shutil
 import contextlib
 from pathlib import Path
+from stt_variants import generate_forms, read_dictionary, save_selected
 
 import assistant_identity as identity
 import control_panel_v0120_JARVIS as panel
@@ -121,7 +122,7 @@ def lite_backup(request):
     if archive.suffix.lower() != ".zip":
         raise ValueError("Выберите ZIP-файл резервной копии.")
     files = ["assistant_names.json", "jarvis_settings.json", "panel_theme.json",
-             "macro_phrases.json", "macro_disabled.json"]
+             "macro_phrases.json", "macro_disabled.json", "stt_variants.json"]
     if operation == "export":
         archive.parent.mkdir(parents=True, exist_ok=True)
         temporary = archive.with_suffix(".tmp")
@@ -317,6 +318,21 @@ def dispatch(request):
         return panel_features.dispatch(request)
     if action == "status":
         return status()
+    if action == "stt_variants":
+        operation = request.get("operation")
+        path = panel.BASE_DIR / "stt_variants.json"
+        if operation == "generate":
+            word = str(request.get("word", "")).strip()
+            return {"canonical": word.casefold().replace("ё", "е"),
+                    "forms": generate_forms(word), "saved": read_dictionary(path)}
+        if operation == "save":
+            selected = request.get("selected")
+            if not isinstance(selected, list):
+                raise ValueError("Не передан список выбранных словоформ.")
+            return {"saved": save_selected(path, request.get("canonical", ""), selected)}
+        if operation == "read":
+            return {"saved": read_dictionary(path)}
+        raise ValueError("Неизвестная операция словаря распознавания.")
     if action == "journal_settings":
         values = panel.load_settings().get("friday_favorite_commands", [])
         return {"favorites": [value for value in values if isinstance(value, str)][:8]}

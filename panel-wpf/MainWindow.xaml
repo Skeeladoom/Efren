@@ -94,6 +94,7 @@
       <Button x:Name="NavOverview" Content="Обзор" HorizontalContentAlignment="Left"/>
       <Button x:Name="NavSettings" Content="Настройки" HorizontalContentAlignment="Left"/>
       <Button x:Name="NavVoices" Content="Голоса" HorizontalContentAlignment="Left"/>
+      <Button x:Name="NavDictionary" Content="Словарь распознавания" HorizontalContentAlignment="Left"/>
       <Button x:Name="Appearance" Content="Оформление" HorizontalContentAlignment="Left"/>
       <Button x:Name="NavTools" Content="Инструменты" HorizontalContentAlignment="Left"/>
      </StackPanel>

@@ -19,7 +19,7 @@ try {
     if (!(Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw 'patch-manifest.json is missing.' }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($manifest.format -ne 'EFREN-LITE-PATCH-1') { throw 'Unknown update package format.' }
-    $protectedFiles = @('config.json','assistant_names.json','jarvis_settings.json','panel_theme.json','macro_phrases.json','macro_disabled.json','lite-auth.json')
+    $protectedFiles = @('config.json','assistant_names.json','jarvis_settings.json','panel_theme.json','macro_phrases.json','macro_disabled.json','stt_variants.json','lite-auth.json')
     foreach ($item in $manifest.files) {
         $relative = ([string]$item.path).Replace('/', '\')
         if ($protectedFiles -contains $relative -or $relative -match '^(logs|backups|updates|rvc_models\\store|scenarios|\u0441\u0446\u0435\u043d\u0430\u0440\u0438\u0438)\\') { throw ('Package attempts to modify personal data: ' + $relative) }

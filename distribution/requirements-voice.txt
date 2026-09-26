@@ -12,3 +12,4 @@ soundfile==0.13.1
 numpy==2.2.6
 keyboard==0.13.5
 PyAutoGUI==0.9.54
+pymorphy3==2.0.6

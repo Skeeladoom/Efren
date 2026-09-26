@@ -374,6 +374,7 @@ namespace Efren.Panel
             Find<Button>("NavOverview").Click += delegate { Navigate("OverviewPage", "Твои помощники", "Голос, команды и управление — в одном месте"); };
             Find<Button>("NavSettings").Click += delegate { Navigate("SettingsPage", "Настройки", "Изменения сохраняются сразу"); };
             Find<Button>("NavVoices").Click += delegate { OpenNative("voice_store", "Магазин голосов"); };
+            Find<Button>("NavDictionary").Click += delegate { OpenNative("stt_dictionary", "Словарь распознавания"); };
             Find<Button>("NavTools").Click += async delegate {
                 Navigate("ToolsPage", "Инструменты", "Диагностика и дополнительные возможности");
                 if (!updateChecked) await CheckForUpdate();
@@ -926,6 +927,7 @@ namespace Efren.Panel
                 else if (key == "macros") nativePages[key] = new MacrosPage(backend, root);
                 else if (key == "commands") nativePages[key] = new CommandsPage(backend);
                 else if (key == "voice_store") nativePages[key] = new VoiceStorePage(backend);
+                else if (key == "stt_dictionary") nativePages[key] = new SttDictionaryPage(backend);
                 else nativePages[key] = new JournalPage(backend, key, delegate {
                     Navigate("SettingsPage", "Настройки", "Изменения сохраняются сразу");
                     Find<TextBlock>("RepliesTitle").BringIntoView();

@@ -3,7 +3,7 @@ import argparse, hashlib, json, zipfile
 from pathlib import Path
 
 PRIVATE = {"config.json", "assistant_names.json", "jarvis_settings.json", "panel_theme.json",
-           "macro_phrases.json", "macro_disabled.json", "lite-auth.json"}
+           "macro_phrases.json", "macro_disabled.json", "stt_variants.json", "lite-auth.json"}
 PRIVATE_PREFIXES = ("logs/", "backups/", "updates/", "rvc_models/store/", "scenarios/", "сценарии/")
 
 def digest(path):

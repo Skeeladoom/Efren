@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCES = (
     "main.py", "voice.py", "tts.py", "tools.py", "router.py", "memory.py", "gigaam_local.py",
     "local_llm.py", "discord_tools.py", "friday_voice_worker.py",
-    "assistant_identity.py", "macro_runner.py", "apple_game_bot.py",
+    "assistant_identity.py", "macro_runner.py", "apple_game_bot.py", "stt_variants.py",
     "panel_backend.py", "panel_features.py", "panel_log_format.py", "panel_python.py", "lite_policy.py", "lite_runtime.py",
     "control_panel_v0120_JARVIS.py", "silero_tts_bridge.py",
     "apply-lite-patch.ps1",

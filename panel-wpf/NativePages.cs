@@ -611,4 +611,48 @@ namespace Efren.Panel
             } finally { busy = false; }
         }
     }
+
+    sealed class SttDictionaryPage : UserControl
+    {
+        readonly Backend backend;
+        readonly TextBox word = PageUI.Input();
+        readonly StackPanel forms = new StackPanel();
+        readonly TextBlock status = PageUI.Text("Введите одно слово и нажмите «Получить словоформы».", true);
+        string canonical = "";
+
+        public SttDictionaryPage(Backend backend)
+        {
+            this.backend = backend;
+            var root = new StackPanel(); Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+            root.Children.Add(PageUI.Text("Локальный генератор использует pymorphy3. Он создаёт только реальные словоформы и не придумывает ошибки распознавания.", true));
+            root.Children.Add(PageUI.Text("Исходное слово"));
+            word.MaxLength = 80; root.Children.Add(word);
+            var buttons = new WrapPanel(); root.Children.Add(buttons);
+            buttons.Children.Add(PageUI.Button("Получить словоформы", Generate));
+            buttons.Children.Add(PageUI.Button("Добавить выбранные", Save));
+            var card = new Border { Style = (Style)Application.Current.MainWindow.FindResource("Card"), Child = forms, Margin = new Thickness(0, 12, 0, 8) };
+            root.Children.Add(card); root.Children.Add(status);
+            word.KeyDown += async delegate(object sender, KeyEventArgs e) { if (e.Key == Key.Enter) { e.Handled = true; await Generate(); } };
+        }
+
+        async Task Generate()
+        {
+            var data = (Dictionary<string, object>)await backend.Call("stt_variants", "operation", "generate", "word", word.Text);
+            canonical = PageUI.Str(data, "canonical"); forms.Children.Clear();
+            foreach (string value in PageUI.Array(data["forms"]).Select(Convert.ToString))
+            {
+                var box = new CheckBox { Content = value, IsChecked = true, Tag = value, Margin = new Thickness(0, 4, 0, 4) };
+                forms.Children.Add(box);
+            }
+            status.Text = "Получено форм: " + forms.Children.Count + ". Снимите галочки с ненужных.";
+        }
+
+        async Task Save()
+        {
+            if (String.IsNullOrWhiteSpace(canonical)) throw new InvalidOperationException("Сначала получите словоформы.");
+            var selected = forms.Children.OfType<CheckBox>().Where(x => x.IsChecked == true).Select(x => Convert.ToString(x.Tag)).ToArray();
+            await backend.Call("stt_variants", "operation", "save", "canonical", canonical, "selected", selected);
+            status.Text = "Сохранено в stt_variants.json и уже применяется Router без перезапуска.";
+        }
+    }
 }
