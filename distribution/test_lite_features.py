@@ -12,6 +12,19 @@ from distribution.prepare_lite import SOURCES, SETTINGS
 
 
 class LiteFeatureTests(unittest.TestCase):
+    def test_gigaam_wake_word_fallback_only_accepts_command_phrases(self):
+        from voice import VoiceListener
+        listener = VoiceListener.__new__(VoiceListener)
+        listener.wake_free_command_fallback = True
+        listener.last_partial = ""
+        listener._find_wake = MagicMock(return_value=(None, ""))
+        listener._already_fast_executed = MagicMock(return_value=False)
+        listener._write_log = MagicMock()
+        accepted = []
+        listener._handle_final("открой блокнот", accepted.append, None)
+        listener._handle_final("сегодня хорошая погода", accepted.append, None)
+        self.assertEqual(accepted, ["открой блокнот"])
+
     def test_sounds_packaged_and_default_on(self):
         self.assertTrue(SETTINGS["ui_sounds_enabled"])
         import wave

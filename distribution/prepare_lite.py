@@ -17,6 +17,7 @@ SOURCES = (
     "assistant_identity.py", "macro_runner.py", "apple_game_bot.py",
     "panel_backend.py", "panel_features.py", "panel_log_format.py", "panel_python.py", "lite_policy.py", "lite_runtime.py",
     "control_panel_v0120_JARVIS.py", "silero_tts_bridge.py",
+    "apply-lite-patch.ps1",
     "friday_icon.ico", "panel-wpf/App.cs", "panel-wpf/Appearance.cs",
     "panel-wpf/NativePages.cs", "panel-wpf/MainWindow.xaml", "panel-wpf/build.ps1",
     "sounds/Open.wav", "sounds/Close.wav", "sounds/ClickS.wav",
@@ -38,6 +39,7 @@ CONFIG = {
     "rvc_enabled": False, "rvc_required": False, "rvc_cpu_threads": 4,
     "rvc_root": "rvc_engine", "rvc_python": "runtime/python/python.exe",
     "rvc_timeout_seconds": 60,
+    "wake_free_command_fallback": True,
 }
 SETTINGS = {
     "voice_enabled": True, "tts_enabled": True,

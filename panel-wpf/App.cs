@@ -373,6 +373,7 @@ namespace Efren.Panel
             };
             Find<Button>("NavOverview").Click += delegate { Navigate("OverviewPage", "Твои помощники", "Голос, команды и управление — в одном месте"); };
             Find<Button>("NavSettings").Click += delegate { Navigate("SettingsPage", "Настройки", "Изменения сохраняются сразу"); };
+            Find<Button>("NavVoices").Click += delegate { OpenNative("voice_store", "Магазин голосов"); };
             Find<Button>("NavTools").Click += async delegate {
                 Navigate("ToolsPage", "Инструменты", "Диагностика и дополнительные возможности");
                 if (!updateChecked) await CheckForUpdate();
@@ -689,18 +690,21 @@ namespace Efren.Panel
                     status.Text = "Установлена актуальная версия " + current + ".";
                     return;
                 }
-                Dictionary<string, object> setup = null;
+                Dictionary<string, object> setup = null, patch = null;
                 foreach (object item in (object[])release["assets"])
                 {
                     var asset = (Dictionary<string, object>)item;
-                    if (String.Equals(Convert.ToString(asset["name"]), "EFREN-Lite-Setup.exe", StringComparison.OrdinalIgnoreCase)) { setup = asset; break; }
+                    if (String.Equals(Convert.ToString(asset["name"]), "EFREN-Lite-Setup.exe", StringComparison.OrdinalIgnoreCase)) setup = asset;
+                    if (String.Equals(Convert.ToString(asset["name"]), "EFREN-Lite-Patch.zip", StringComparison.OrdinalIgnoreCase)) patch = asset;
                 }
-                if (setup == null) throw new InvalidOperationException("В выпуске " + latest + " нет EFREN-Lite-Setup.exe.");
+                var updateAsset = patch ?? setup;
+                if (updateAsset == null) throw new InvalidOperationException("В выпуске " + latest + " нет пакета обновления или установщика.");
                 Notify("Доступно обновление", "EFREN Lite " + latest + " готова к установке.", System.Windows.Forms.ToolTipIcon.Info);
-                string digest = setup.ContainsKey("digest") ? Convert.ToString(setup["digest"]) : "";
+                string digest = updateAsset.ContainsKey("digest") ? Convert.ToString(updateAsset["digest"]) : "";
                 if (!digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException("GitHub не предоставил SHA-256 установщика. Обновление отменено.");
-                if (MessageBox.Show(window, "Доступна EFREN Lite " + latest + ". Скачать и установить обновление?", "Обновление EFREN Lite", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) != MessageBoxResult.Yes)
+                    throw new InvalidOperationException("GitHub не предоставил SHA-256 пакета. Обновление отменено.");
+                string kind = patch != null ? "небольшой пакет изменённых файлов" : "полный установщик";
+                if (MessageBox.Show(window, "Доступна EFREN Lite " + latest + ". Скачать " + kind + "?", "Обновление EFREN Lite", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) != MessageBoxResult.Yes)
                 {
                     status.Text = "Обновление " + latest + " отложено.";
                     return;
@@ -709,7 +713,7 @@ namespace Efren.Panel
                 // selected for EFREN instead of duplicating it on drive C:.
                 string directory = Path.Combine(root, "updates");
                 Directory.CreateDirectory(directory);
-                string target = Path.Combine(directory, "EFREN-Lite-Setup-" + latest + ".exe");
+                string target = Path.Combine(directory, patch != null ? "EFREN-Lite-Patch-" + latest + ".zip" : "EFREN-Lite-Setup-" + latest + ".exe");
                 progress.Value = 0; progress.Visibility = Visibility.Visible;
                 using (var web = new WebClient())
                 {
@@ -718,18 +722,30 @@ namespace Efren.Panel
                         progress.Value = e.ProgressPercentage;
                         status.Text = "Скачиваю " + latest + ": " + e.ProgressPercentage + "%";
                     };
-                    await web.DownloadFileTaskAsync(new Uri(Convert.ToString(setup["browser_download_url"])), target);
+                    await web.DownloadFileTaskAsync(new Uri(Convert.ToString(updateAsset["browser_download_url"])), target);
                 }
                 string expected = digest.Substring(7).Trim().ToLowerInvariant();
                 string actual = await Task.Run(() => Sha256(target));
-                if (actual != expected) { File.Delete(target); throw new InvalidDataException("SHA-256 установщика не совпал. Файл удалён."); }
+                if (actual != expected) { File.Delete(target); throw new InvalidDataException("SHA-256 пакета не совпал. Файл удалён."); }
                 status.Text = "Сохраняю настройки и сценарии перед обновлением…";
                 string backupDirectory = Path.Combine(root, "backups");
                 Directory.CreateDirectory(backupDirectory);
                 string backupPath = Path.Combine(backupDirectory, "before-update-" + current + "-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".zip");
                 await backend.Call("backup", "operation", "export", "path", backupPath);
-                status.Text = "Проверка пройдена. Запускаю установщик " + latest + "…";
-                Process.Start(new ProcessStartInfo(target, "/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS") { UseShellExecute = true });
+                if (patch != null)
+                {
+                    status.Text = "Проверка пройдена. Применяю только изменённые файлы…";
+                    await backend.Call("jarvis", "operation", "stop");
+                    string helper = Path.Combine(root, "apply-lite-patch.ps1");
+                    if (!File.Exists(helper)) throw new FileNotFoundException("Не найден безопасный обработчик частичного обновления.", helper);
+                    string arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + helper + "\" -Package \"" + target + "\" -InstallDir \"" + root + "\" -WaitPid " + Process.GetCurrentProcess().Id;
+                    Process.Start(new ProcessStartInfo("powershell.exe", arguments) { UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden });
+                }
+                else
+                {
+                    status.Text = "Проверка пройдена. Запускаю установщик " + latest + "…";
+                    Process.Start(new ProcessStartInfo(target, "/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS") { UseShellExecute = true });
+                }
                 closing = true;
                 window.Close();
             }

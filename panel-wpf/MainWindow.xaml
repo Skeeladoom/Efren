@@ -93,6 +93,7 @@
      <StackPanel DockPanel.Dock="Top"><TextBlock Text="EFREN" FontSize="26" FontWeight="Bold" Foreground="{DynamicResource ThemeAccent}"/><TextBlock Text="Панель управления" Style="{StaticResource Muted}" Margin="0,5,0,35"/>
       <Button x:Name="NavOverview" Content="Обзор" HorizontalContentAlignment="Left"/>
       <Button x:Name="NavSettings" Content="Настройки" HorizontalContentAlignment="Left"/>
+      <Button x:Name="NavVoices" Content="Голоса" HorizontalContentAlignment="Left"/>
       <Button x:Name="Appearance" Content="Оформление" HorizontalContentAlignment="Left"/>
       <Button x:Name="NavTools" Content="Инструменты" HorizontalContentAlignment="Left"/>
      </StackPanel>

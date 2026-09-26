@@ -72,6 +72,7 @@ class VoiceListener:
         self.max_utterance_seconds = float(config.get("whisper_max_utterance_seconds", 12.0))
         self.min_utterance_seconds = float(config.get("whisper_min_utterance_seconds", 0.25))
         self.energy_threshold = float(config.get("whisper_energy_threshold", 0.012))
+        self.wake_free_command_fallback = bool(config.get("wake_free_command_fallback", False))
 
         print(f"[VOICE VERSION] {VOICE_CODE_VERSION}")
         self.model = None
@@ -657,6 +658,22 @@ class VoiceListener:
     # FINAL
     # =========================================================
 
+    @staticmethod
+    def _looks_like_command(text):
+        text = " ".join(str(text or "").lower().split())
+        exact = {
+            "который час", "сколько времени", "какое время", "время сейчас",
+            "открой блокнот", "открой калькулятор", "открой настройки",
+            "сделай скриншот", "сними экран", "покажи команды",
+        }
+        prefixes = (
+            "открой ", "запусти ", "включи ", "закрой ", "выключи ",
+            "сверни ", "разверни ", "найди ", "покажи ", "скажи ",
+            "озвучь ", "повтори ", "громкость ", "поставь громкость ",
+            "сделай громкость ", "сделай скрин", "перезапусти ",
+        )
+        return text in exact or text.startswith(prefixes)
+
     def _handle_final(
         self,
         text,
@@ -702,6 +719,14 @@ class VoiceListener:
         # =====================================================
 
         if wake is None:
+            # GigaAM occasionally recognizes the command perfectly but drops
+            # the assistant name at the beginning.  Only pass phrases that
+            # clearly look like supported commands; ordinary conversation is
+            # still ignored.
+            if self.wake_free_command_fallback and self._looks_like_command(text):
+                self._write_log("wake_fallback", text=text, accepted=True,
+                                command=text, reason="STT omitted wake word")
+                on_text(text)
             self.last_partial = ""
             return
 
