@@ -874,6 +874,7 @@ namespace Efren.Panel
                 string visibleState = jarvisTransition == "stopping" ? "stopping" : processState;
                 Find<TextBlock>("JarvisState").Text = visibleState == "running" ? "● Запущен" : visibleState == "starting" ? "◌ Запускается…" : visibleState == "stopping" ? "◌ Останавливается…" : "○ Выключен";
                 Find<TextBlock>("JarvisStage").Text = visibleState == "running" ? "Микрофон подключён · распознавание и голос готовы" : visibleState == "starting" ? "Загрузка GigaAM · подключение микрофона · подготовка голоса" : visibleState == "stopping" ? "Завершение процесса и освобождение микрофона" : "Компоненты не загружены";
+                Find<TextBlock>("JarvisVoiceStatus").Text = data.ContainsKey("jarvis_voice_status") ? Convert.ToString(data["jarvis_voice_status"]) : "Голос: Piper (базовый)";
                 if (lastJarvisVisibleState == "starting" && visibleState == "running") Notify(jarvisName + " готов", "Микрофон подключён, распознавание и голос загружены.", System.Windows.Forms.ToolTipIcon.Info);
                 else if (lastJarvisVisibleState == "starting" && visibleState == "stopped") Notify("Помощник не запустился", "Откройте журнал или диагностику EFREN Lite.", System.Windows.Forms.ToolTipIcon.Error);
                 lastJarvisVisibleState = visibleState;

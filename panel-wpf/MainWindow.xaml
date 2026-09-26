@@ -132,6 +132,7 @@
         <DockPanel><TextBlock x:Name="JarvisState" DockPanel.Dock="Right" Text="Проверяю…" Foreground="{DynamicResource ThemeMuted}" FontSize="12" Margin="14,12,0,0"/><TextBox x:Name="JarvisName" Style="{StaticResource NameEditor}" Text="Джарвис"/></DockPanel>
         <TextBlock Text="Помощник на компьютере" Style="{StaticResource Muted}" Margin="0,5,0,5"/>
         <TextBlock x:Name="JarvisStage" Text="Проверяю компоненты…" Style="{StaticResource Muted}" Margin="0,0,0,18"/>
+        <Border Background="{DynamicResource ThemeButton}" BorderBrush="{DynamicResource ThemeButtonBorder}" BorderThickness="1" CornerRadius="8" Padding="11,8" Margin="0,0,0,12"><TextBlock x:Name="JarvisVoiceStatus" Text="Голос: проверяю…" Foreground="{DynamicResource ThemeAccent}"/></Border>
         <WrapPanel><Button x:Name="JarvisStart" Style="{StaticResource Primary}" Content="Запустить"/><Button x:Name="JarvisStop" Content="Остановить"/><Button x:Name="JarvisRestart" Content="Перезапустить"/></WrapPanel>
         <Border Height="1" Background="{DynamicResource ThemeBorder}" Margin="0,10,0,17"/>
         <WrapPanel><Button x:Name="JarvisLog" Content="История команд"/><Button x:Name="CommandList" Content="Мои команды"/><Button x:Name="Chat" Content="Текстовый чат"/><Button x:Name="Macros" Content="Создать команду"/></WrapPanel>

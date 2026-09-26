@@ -29,6 +29,31 @@ window_requests = queue.Queue()
 lite_console = None
 
 
+def jarvis_voice_status(root):
+    """Return a short user-facing summary without loading any voice model."""
+    root = Path(root)
+    try:
+        config = json.loads((root / "config.json").read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError, TypeError):
+        return "Голос: Piper (базовый)"
+    model_value = str(config.get("rvc_model", "")).strip()
+    if not model_value:
+        return "Голос: Piper (базовый)"
+    model = Path(model_value)
+    if not model.is_absolute(): model = root / model
+    name = model.stem
+    try:
+        metadata = json.loads((model.parent / "voice.json").read_text(encoding="utf-8"))
+        name = str(metadata.get("name") or name)
+    except (OSError, ValueError, TypeError):
+        pass
+    if not config.get("rvc_enabled", False):
+        return "Голос: Piper · выбран «" + name + "», но RVC выключен"
+    device = str(config.get("rvc_device", "cpu")).lower()
+    mode = "видеоядро / DirectML" if device == "directml" else "CPU, " + str(config.get("rvc_cpu_threads", 4)) + " потока"
+    return "Голос: «" + name + "» · " + mode
+
+
 def lite_console_action(value, mode):
     global lite_console
     # The stdout pipe is a JSON protocol: assistant diagnostics must go to stderr.
@@ -73,7 +98,8 @@ def status():
             "legacy_startup": False if lite else panel.control_center_startup_file().exists(),
             "jarvis_running": bool(pid and panel.process_exists(pid)),
             "jarvis_state": process_state(panel.BASE_DIR) if lite else ("running" if pid and panel.process_exists(pid) else "stopped"),
-            "jarvis_pid": pid, "backend_pid": os.getpid()}
+            "jarvis_pid": pid, "backend_pid": os.getpid(),
+            "jarvis_voice_status": jarvis_voice_status(panel.BASE_DIR)}
 
 
 def lite_backup(request):

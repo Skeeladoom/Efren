@@ -12,6 +12,20 @@ from distribution.prepare_lite import SOURCES, SETTINGS
 
 
 class LiteFeatureTests(unittest.TestCase):
+    def test_voice_status_uses_installed_voice_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            voice = root / "rvc_models/store/test"
+            voice.mkdir(parents=True)
+            model = voice / "voice.pth"
+            model.write_bytes(b"model")
+            (voice / "voice.json").write_text(json.dumps({"name": "Тестовый голос"}), encoding="utf-8")
+            (root / "config.json").write_text(json.dumps({
+                "rvc_enabled": True, "rvc_model": str(model),
+                "rvc_device": "cpu", "rvc_cpu_threads": 4,
+            }), encoding="utf-8")
+            self.assertEqual(backend.jarvis_voice_status(root), "Голос: «Тестовый голос» · CPU, 4 потока")
+
     def test_gigaam_wake_word_fallback_only_accepts_command_phrases(self):
         from voice import VoiceListener
         listener = VoiceListener.__new__(VoiceListener)
