@@ -202,7 +202,7 @@ namespace Efren.Panel
         string[] browserLabels = new string[0];
         TextBlock jarvisCommandsTitle;
         bool updating, refreshing, closing;
-        bool updateBusy;
+        bool updateBusy, updateChecked;
         string jarvisTransition = "";
         string fridayName = "Пятница", jarvisName = "Джарвис";
         DateTime lastMeasure = DateTime.UtcNow;
@@ -350,6 +350,8 @@ namespace Efren.Panel
             Bind("StartupOn", "startup", "enabled", true); Bind("StartupOff", "startup", "enabled", false);
             Find<Button>("PanelRestart").Click += delegate { Program.RestartRequested = true; window.Close(); };
             Find<Button>("CheckUpdate").Click += async delegate { await CheckForUpdate(); };
+            if (File.Exists(Path.Combine(root, "lite-build.json")))
+                Find<TextBlock>("UpdateStatus").Text = "Установлена версия " + InstalledVersion() + ".";
             Bind("QwenOff", "setting", "key", "qwen_mode", "value", "disabled");
             Bind("QwenExplicit", "setting", "key", "qwen_mode", "value", "explicit");
             Bind("QwenAuto", "setting", "key", "qwen_mode", "value", "fallback");
@@ -364,7 +366,10 @@ namespace Efren.Panel
             };
             Find<Button>("NavOverview").Click += delegate { Navigate("OverviewPage", "Твои помощники", "Голос, команды и управление — в одном месте"); };
             Find<Button>("NavSettings").Click += delegate { Navigate("SettingsPage", "Настройки", "Изменения сохраняются сразу"); };
-            Find<Button>("NavTools").Click += delegate { Navigate("ToolsPage", "Инструменты", "Диагностика и дополнительные возможности"); };
+            Find<Button>("NavTools").Click += async delegate {
+                Navigate("ToolsPage", "Инструменты", "Диагностика и дополнительные возможности");
+                if (!updateChecked) await CheckForUpdate();
+            };
             WireName("FridayName", "friday"); WireName("JarvisName", "jarvis");
             Find<Button>("Login").Click += async delegate { await Login(); };
             Find<PasswordBox>("Password").KeyDown += async delegate(object sender, KeyEventArgs e) { if (e.Key == Key.Enter) { e.Handled = true; await Login(); } };
@@ -568,6 +573,15 @@ namespace Efren.Panel
             Version result;
             return Version.TryParse(value, out result) ? result : new Version(0, 0, 0);
         }
+        string InstalledVersion()
+        {
+            try
+            {
+                var data = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(Path.Combine(root, "lite-build.json"), Encoding.UTF8));
+                return data.ContainsKey("version") ? Convert.ToString(data["version"]) : "неизвестна";
+            }
+            catch { return "неизвестна"; }
+        }
         static string Sha256(string path)
         {
             using (var stream = File.OpenRead(path))
@@ -599,6 +613,7 @@ namespace Efren.Panel
                     release = new JavaScriptSerializer { MaxJsonLength = 4 * 1024 * 1024 }.Deserialize<Dictionary<string, object>>(json);
                 }
                 string latest = Convert.ToString(release["tag_name"]).TrimStart('v', 'V');
+                updateChecked = true;
                 if (ParseVersion(latest) <= ParseVersion(current))
                 {
                     status.Text = "Установлена актуальная версия " + current + ".";
