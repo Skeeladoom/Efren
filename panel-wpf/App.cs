@@ -201,7 +201,7 @@ namespace Efren.Panel
         string[] browserKeys = new string[0];
         string[] browserLabels = new string[0];
         TextBlock jarvisCommandsTitle;
-        bool updating, refreshing, closing;
+        bool updating, refreshing, closing, firstRunLogin;
         bool updateBusy, updateChecked;
         string jarvisTransition = "";
         string fridayName = "Пятница", jarvisName = "Джарвис";
@@ -372,6 +372,8 @@ namespace Efren.Panel
             };
             WireName("FridayName", "friday"); WireName("JarvisName", "jarvis");
             Find<Button>("Login").Click += async delegate { await Login(); };
+            Find<Button>("WizardSound").Click += delegate { Process.Start(new ProcessStartInfo("ms-settings:sound") { UseShellExecute = true }); };
+            Find<Button>("WizardFinish").Click += async delegate { await FinishFirstRun(); };
             Find<PasswordBox>("Password").KeyDown += async delegate(object sender, KeyEventArgs e) { if (e.Key == Key.Enter) { e.Handled = true; await Login(); } };
             timer.Interval = TimeSpan.FromSeconds(5);
             timer.Tick += async delegate {
@@ -558,12 +560,43 @@ namespace Efren.Panel
                 if (!Convert.ToBoolean(result["authenticated"])) { PlaySound("Block"); Find<TextBlock>("LoginError").Text = "Неверный пароль"; return; }
                 PlaySound("Excellent");
                 Find<Border>("LoginOverlay").Visibility = Visibility.Collapsed;
-                Find<Grid>("RootLayout").IsEnabled = true;
-                Find<Grid>("RootLayout").BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0.5, 1, TimeSpan.FromMilliseconds(180)));
-                Keyboard.ClearFocus();
+                if (firstRunLogin)
+                {
+                    Find<TextBox>("WizardName").Text = jarvisName;
+                    Find<Border>("FirstRunOverlay").Visibility = Visibility.Visible;
+                }
+                else UnlockPanel();
             }
             catch (Exception ex) { Find<TextBlock>("LoginError").Text = ex.Message; }
             finally { button.IsEnabled = true; }
+        }
+        void UnlockPanel()
+        {
+            Find<Border>("FirstRunOverlay").Visibility = Visibility.Collapsed;
+            Find<Grid>("RootLayout").IsEnabled = true;
+            Find<Grid>("RootLayout").BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0.5, 1, TimeSpan.FromMilliseconds(180)));
+            Keyboard.ClearFocus();
+        }
+        async Task FinishFirstRun()
+        {
+            var button = Find<Button>("WizardFinish");
+            if (!button.IsEnabled) return;
+            string name = Find<TextBox>("WizardName").Text.Trim();
+            if (name.Length < 2) { Find<TextBlock>("WizardStatus").Text = "Введите имя длиной хотя бы 2 символа."; return; }
+            button.IsEnabled = false;
+            try
+            {
+                Find<TextBlock>("WizardStatus").Text = "Сохраняю имя и параметры…";
+                await backend.Call("name", "key", "jarvis", "value", name);
+                await backend.Call("startup", "enabled", Find<CheckBox>("WizardStartup").IsChecked == true);
+                Find<TextBlock>("WizardStatus").Text = "Запускаю помощника: загрузка GigaAM…";
+                await backend.Call("jarvis", "operation", "start");
+                firstRunLogin = false;
+                UnlockPanel();
+                await Refresh();
+            }
+            catch (Exception ex) { Find<TextBlock>("WizardStatus").Text = "Не удалось завершить настройку: " + ex.Message; }
+            finally { if (!closing) button.IsEnabled = true; }
         }
         static Version ParseVersion(string value)
         {
@@ -743,6 +776,7 @@ namespace Efren.Panel
                 if (data.ContainsKey("edition") && Convert.ToString(data["edition"]) == "lite")
                 {
                     bool firstRun = Flag(data, "first_run");
+                    firstRunLogin = firstRun;
                     var loginFields = (StackPanel)((Border)Find<Border>("LoginOverlay").Child).Child;
                     ((TextBlock)loginFields.Children[0]).Text = firstRun ? "Первый запуск Lite" : "С возвращением";
                     ((TextBlock)loginFields.Children[1]).Text = firstRun ? "Придумайте свой пароль: от 6 символов. Запомните его — это локальный пароль панели." : "Введите свой пароль Lite";
@@ -778,6 +812,7 @@ namespace Efren.Panel
                 if (processState == "running" || processState == "stopped") jarvisTransition = "";
                 string visibleState = jarvisTransition == "stopping" ? "stopping" : processState;
                 Find<TextBlock>("JarvisState").Text = visibleState == "running" ? "● Запущен" : visibleState == "starting" ? "◌ Запускается…" : visibleState == "stopping" ? "◌ Останавливается…" : "○ Выключен";
+                Find<TextBlock>("JarvisStage").Text = visibleState == "running" ? "Микрофон подключён · распознавание и голос готовы" : visibleState == "starting" ? "Загрузка GigaAM · подключение микрофона · подготовка голоса" : visibleState == "stopping" ? "Завершение процесса и освобождение микрофона" : "Компоненты не загружены";
                 Find<TextBlock>("Connection").Text = "Обновлено " + DateTime.Now.ToString("HH:mm:ss");
                 Measure();
             }
