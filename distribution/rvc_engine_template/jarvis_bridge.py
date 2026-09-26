@@ -11,6 +11,8 @@ CPU_THREADS = max(1, min(32, int(sys.argv[3]))) if len(sys.argv) > 3 else 4
 REQUESTED_DEVICE = str(sys.argv[4]).lower() if len(sys.argv) > 4 else "auto"
 if REQUESTED_DEVICE == "cpu":
     os.environ["RVC_FORCE_CPU"] = "1"
+elif REQUESTED_DEVICE == "cuda":
+    os.environ.pop("RVC_FORCE_CPU", None)
 os.environ.setdefault("OMP_NUM_THREADS", str(CPU_THREADS))
 os.environ.setdefault("MKL_NUM_THREADS", str(CPU_THREADS))
 
@@ -29,6 +31,12 @@ from infer.vc.modules import VC
 from infer.vc.utils import load_hubert
 
 PREFIX = "JARVIS_RVC:"
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, OSError):
+    pass
 
 
 def reply(data):

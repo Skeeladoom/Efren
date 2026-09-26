@@ -13,6 +13,7 @@ import urllib.request
 from pathlib import Path
 import control_panel_v0120_JARVIS as panel
 import panel_log_format as logs
+from lite_policy import is_lite
 
 
 HF_VOICE_REPO = "niobures/RVC-Models"
@@ -70,8 +71,12 @@ def _optimize_rvc(model, index):
     """Benchmark isolated CPU/DirectML bridges and save the fastest valid mode."""
     config_path = panel.BASE_DIR / "config.json"
     config = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.exists() else {}
-    python = panel.BASE_DIR / "runtime" / "python" / "python.exe"
-    engine = panel.BASE_DIR / "rvc_engine"
+    lite = is_lite(panel.BASE_DIR)
+    python = _root_path(config.get("rvc_python", "runtime/python/python.exe"))
+    cuda_python = panel.BASE_DIR / "rvc_env" / "Scripts" / "python.exe"
+    if not lite and cuda_python.is_file():
+        python = cuda_python
+    engine = _root_path(config.get("rvc_root", "rvc_engine"))
     bridge = engine / "jarvis_bridge.py"
     piper = _root_path(config.get("piper_exe", "runtime/piper/piper.exe"))
     piper_model = _root_path(config.get("piper_model", "tts_models/ru_RU-ruslan-medium.onnx"))
@@ -101,6 +106,15 @@ def _optimize_rvc(model, index):
     # compare conversion profiles using that count. This gives the same useful
     # answer as a full Cartesian benchmark without making setup take minutes.
     candidates = [("cpu", value, profiles[0]) for value in cpu_threads]
+    if not lite:
+        try:
+            probe = subprocess.run([str(python), "-c", "import torch; print(torch.cuda.is_available())"],
+                                   text=True, encoding="utf-8", errors="replace", capture_output=True,
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=15)
+            if probe.returncode == 0 and probe.stdout.strip() == "True":
+                candidates.append(("cuda", min(4, logical), profiles[0]))
+        except (OSError, subprocess.SubprocessError):
+            pass
     # DirectML is meant here for AMD/Intel integrated graphics. On Nvidia the
     # CUDA backend is the appropriate future path; RVC over DirectML proved
     # unstable on Pascal and could hang an otherwise completed reply.
@@ -120,7 +134,8 @@ def _optimize_rvc(model, index):
     def run_candidate(device, threads, profile, number, total):
         method, index_rate, filter_radius = profile
         with _voice_lock:
-            label = "видеоядро / DirectML" if device == "directml" else f"CPU, {threads} потоков"
+            label = ("CUDA" if device == "cuda" else
+                     "видеоядро / DirectML" if device == "directml" else f"CPU, {threads} потоков")
             _voice_job.update(message=f"Проверка RVC: {label} · {method.upper()}…", downloaded=number - 1, total=total)
         output1 = benchmark.with_name(f"rvc-test-{device}-{threads}-{method}-{index_rate}.wav")
         requests = "\n".join(json.dumps({"input": str(benchmark), "output": str(output), "method": method,
@@ -142,7 +157,8 @@ def _optimize_rvc(model, index):
         output1.unlink(missing_ok=True)
         # DirectML reports a numbered torch device (usually privateuseone:0),
         # while CPU is reported without an index.
-        expected_device = '"device": "privateuseone' if device == "directml" else '"device": "cpu"'
+        expected_device = ('"device": "cuda' if device == "cuda" else
+                           '"device": "privateuseone' if device == "directml" else '"device": "cpu"')
         good = good and expected_device in process.stdout
         debug.append({"device": device, "threads": threads, "method": method,
                       "index_rate": index_rate, "filter_radius": filter_radius,
@@ -209,9 +225,12 @@ def voice_store(request):
             raise ValueError("Файл модели не найден")
         config_path = panel.BASE_DIR / "config.json"
         config = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.exists() else {}
+        lite = is_lite(panel.BASE_DIR)
+        full_cuda_python = panel.BASE_DIR / "rvc_env" / "Scripts" / "python.exe"
+        selected_python = (panel.BASE_DIR / "runtime" / "python" / "python.exe") if lite or not full_cuda_python.is_file() else full_cuda_python
         config.update({"rvc_enabled": True, "rvc_required": False,
                        "rvc_root": str(panel.BASE_DIR / "rvc_engine"),
-                       "rvc_python": str(panel.BASE_DIR / "runtime" / "python" / "python.exe"),
+                       "rvc_python": str(selected_python),
                        "rvc_model": str(model), "rvc_index": str(index) if index.is_file() else "",
                        "rvc_timeout_seconds": 10})
         atomic_json(config_path, config)
@@ -221,7 +240,8 @@ def voice_store(request):
         def optimize():
             try:
                 elapsed, threads, device, method, index_rate, filter_radius = _optimize_rvc(model, index)
-                label = "видеоядро / DirectML" if device == "directml" else f"CPU, {threads} потоков"
+                label = ("CUDA" if device == "cuda" else
+                         "видеоядро / DirectML" if device == "directml" else f"CPU, {threads} потоков")
                 with _voice_lock: _voice_job.update(running=False, downloaded=_voice_job["total"],
                     message=f"Голос выбран: {label} · {method.upper()} · index {index_rate:.2f} · filter {filter_radius} ({elapsed:.1f} с). Перезапустите помощника.", error=False)
             except Exception as exc:
