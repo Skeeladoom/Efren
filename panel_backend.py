@@ -7,6 +7,7 @@ import subprocess
 import sys
 import queue
 import threading
+import zipfile
 import time
 import ctypes
 import shutil
@@ -73,6 +74,55 @@ def status():
             "jarvis_running": bool(pid and panel.process_exists(pid)),
             "jarvis_state": process_state(panel.BASE_DIR) if lite else ("running" if pid and panel.process_exists(pid) else "stopped"),
             "jarvis_pid": pid, "backend_pid": os.getpid()}
+
+
+def lite_backup(request):
+    if not is_lite(panel.BASE_DIR):
+        raise ValueError("Резервные копии доступны только в EFREN Lite.")
+    operation = request.get("operation")
+    archive = Path(str(request.get("path", ""))).resolve()
+    if archive.suffix.lower() != ".zip":
+        raise ValueError("Выберите ZIP-файл резервной копии.")
+    files = ["assistant_names.json", "jarvis_settings.json", "panel_theme.json",
+             "macro_phrases.json", "macro_disabled.json"]
+    if operation == "export":
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        temporary = archive.with_suffix(".tmp")
+        with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as output:
+            output.writestr("backup-manifest.json", json.dumps({"format": "EFREN-LITE-BACKUP-1"}, ensure_ascii=False))
+            for name in files:
+                source = panel.BASE_DIR / name
+                if source.is_file(): output.write(source, name)
+            for folder in ("сценарии", "scenarios"):
+                source = panel.BASE_DIR / folder
+                if source.is_dir():
+                    for item in source.rglob("*.jmacro"):
+                        if item.is_file(): output.write(item, item.relative_to(panel.BASE_DIR))
+        os.replace(temporary, archive)
+        return {"message": "Резервная копия создана: " + str(archive)}
+    if operation != "import": raise ValueError("Неизвестная операция резервной копии.")
+    if not archive.is_file(): raise FileNotFoundError("Резервная копия не найдена.")
+    with zipfile.ZipFile(archive, "r") as source:
+        entries = source.infolist()
+        if len(entries) > 500 or sum(x.file_size for x in entries) > 20 * 1024 * 1024:
+            raise ValueError("Резервная копия слишком большая или содержит слишком много файлов.")
+        manifest = json.loads(source.read("backup-manifest.json").decode("utf-8"))
+        if manifest.get("format") != "EFREN-LITE-BACKUP-1": raise ValueError("Неизвестный формат резервной копии.")
+        allowed = set(files)
+        restored = 0
+        for entry in entries:
+            name = entry.filename.replace("\\", "/")
+            parts = Path(name).parts
+            valid_scenario = len(parts) >= 2 and parts[0] in {"сценарии", "scenarios"} and name.lower().endswith(".jmacro")
+            if name not in allowed and not valid_scenario: continue
+            if entry.is_dir() or entry.file_size > 5 * 1024 * 1024 or ".." in parts: raise ValueError("Недопустимый файл в резервной копии.")
+            target = (panel.BASE_DIR / Path(*parts)).resolve()
+            if panel.BASE_DIR.resolve() not in target.parents: raise ValueError("Недопустимый путь в резервной копии.")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_suffix(target.suffix + ".restore.tmp")
+            temporary.write_bytes(source.read(entry))
+            os.replace(temporary, target); restored += 1
+    return {"message": "Восстановлено файлов: " + str(restored) + ". Перезапустите панель."}
 
 
 def bot_action(operation):
@@ -409,6 +459,8 @@ def dispatch(request):
     if action == "project":
         os.startfile(str(panel.BASE_DIR))
         return {"opened": True}
+    if action == "backup":
+        return lite_backup(request)
     raise ValueError("Неизвестный запрос.")
 
 

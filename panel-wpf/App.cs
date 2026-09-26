@@ -190,6 +190,7 @@ namespace Efren.Panel
         readonly string root;
         readonly DispatcherTimer timer = new DispatcherTimer();
         readonly Dictionary<string, SoundPlayer> sounds = new Dictionary<string, SoundPlayer>();
+        readonly System.Windows.Forms.NotifyIcon notifier = new System.Windows.Forms.NotifyIcon();
         bool soundsEnabled, closeSoundPlayed;
         readonly bool smokeMode = Environment.GetCommandLineArgs().Contains("--smoke");
         readonly Dictionary<string, string> toggleKeys = new Dictionary<string, string> {
@@ -204,12 +205,14 @@ namespace Efren.Panel
         bool updating, refreshing, closing, firstRunLogin;
         bool updateBusy, updateChecked;
         string jarvisTransition = "";
+        string lastJarvisVisibleState = "";
         string fridayName = "Пятница", jarvisName = "Джарвис";
         DateTime lastMeasure = DateTime.UtcNow;
         double lastCpu;
         public PanelController(Window window, string root)
         {
             this.window = window; this.root = root;
+            try { notifier.Icon = System.Drawing.Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location); notifier.Text = "EFREN Lite"; notifier.Visible = true; } catch { }
             if (File.Exists(Path.Combine(root, "lite-build.json"))) ConfigureLite();
             scrolling = new SmoothScrolling(window);
             window.PreviewMouseDown += delegate(object sender, MouseButtonEventArgs e) {
@@ -350,6 +353,8 @@ namespace Efren.Panel
             };
             Bind("StartupOn", "startup", "enabled", true); Bind("StartupOff", "startup", "enabled", false);
             Find<Button>("PanelRestart").Click += delegate { Program.RestartRequested = true; window.Close(); };
+            Find<Button>("BackupExport").Click += async delegate { await Backup(true); };
+            Find<Button>("BackupImport").Click += async delegate { await Backup(false); };
             Find<Button>("CheckUpdate").Click += async delegate { await CheckForUpdate(); };
             if (File.Exists(Path.Combine(root, "lite-build.json")))
                 Find<TextBlock>("UpdateStatus").Text = "Установлена версия " + InstalledVersion() + ".";
@@ -391,6 +396,7 @@ namespace Efren.Panel
             window.Closed += delegate {
                 closing = true; timer.Stop(); backend.Dispose();
                 foreach (var player in sounds.Values) player.Dispose();
+                notifier.Visible = false; notifier.Dispose();
             };
             window.ContentRendered += delegate { if (!closing && !closeSoundPlayed) PlaySound("Open"); };
             window.Loaded += async delegate {
@@ -571,6 +577,35 @@ namespace Efren.Panel
             catch (Exception ex) { Find<TextBlock>("LoginError").Text = ex.Message; }
             finally { button.IsEnabled = true; }
         }
+        async Task Backup(bool export)
+        {
+            string path;
+            if (export)
+            {
+                var dialog = new Microsoft.Win32.SaveFileDialog { Filter = "Резервная копия EFREN Lite|*.zip", DefaultExt = ".zip", FileName = "EFREN-Lite-backup-" + DateTime.Now.ToString("yyyy-MM-dd") + ".zip" };
+                if (dialog.ShowDialog(window) != true) return; path = dialog.FileName;
+            }
+            else
+            {
+                var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "Резервная копия EFREN Lite|*.zip" };
+                if (dialog.ShowDialog(window) != true) return;
+                if (MessageBox.Show(window, "Восстановить настройки и сценарии из выбранной копии? Текущие одноимённые данные будут заменены.", "Восстановление", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
+                path = dialog.FileName;
+            }
+            var status = Find<TextBlock>("BackupStatus"); status.Text = export ? "Создаю резервную копию…" : "Восстанавливаю данные…";
+            try
+            {
+                var result = (Dictionary<string, object>)await backend.Call("backup", "operation", export ? "export" : "import", "path", path);
+                status.Text = Convert.ToString(result["message"]);
+                if (!export) { Program.RestartRequested = true; window.Close(); }
+            }
+            catch (Exception ex) { status.Text = "Ошибка: " + ex.Message; }
+        }
+        void Notify(string title, string message, System.Windows.Forms.ToolTipIcon icon)
+        {
+            if (smokeMode || !notifier.Visible) return;
+            try { notifier.BalloonTipTitle = title; notifier.BalloonTipText = message; notifier.BalloonTipIcon = icon; notifier.ShowBalloonTip(4500); } catch { }
+        }
         void UnlockPanel()
         {
             Find<Border>("FirstRunOverlay").Visibility = Visibility.Collapsed;
@@ -660,6 +695,7 @@ namespace Efren.Panel
                     if (String.Equals(Convert.ToString(asset["name"]), "EFREN-Lite-Setup.exe", StringComparison.OrdinalIgnoreCase)) { setup = asset; break; }
                 }
                 if (setup == null) throw new InvalidOperationException("В выпуске " + latest + " нет EFREN-Lite-Setup.exe.");
+                Notify("Доступно обновление", "EFREN Lite " + latest + " готова к установке.", System.Windows.Forms.ToolTipIcon.Info);
                 string digest = setup.ContainsKey("digest") ? Convert.ToString(setup["digest"]) : "";
                 if (!digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("GitHub не предоставил SHA-256 установщика. Обновление отменено.");
@@ -814,6 +850,9 @@ namespace Efren.Panel
                 string visibleState = jarvisTransition == "stopping" ? "stopping" : processState;
                 Find<TextBlock>("JarvisState").Text = visibleState == "running" ? "● Запущен" : visibleState == "starting" ? "◌ Запускается…" : visibleState == "stopping" ? "◌ Останавливается…" : "○ Выключен";
                 Find<TextBlock>("JarvisStage").Text = visibleState == "running" ? "Микрофон подключён · распознавание и голос готовы" : visibleState == "starting" ? "Загрузка GigaAM · подключение микрофона · подготовка голоса" : visibleState == "stopping" ? "Завершение процесса и освобождение микрофона" : "Компоненты не загружены";
+                if (lastJarvisVisibleState == "starting" && visibleState == "running") Notify(jarvisName + " готов", "Микрофон подключён, распознавание и голос загружены.", System.Windows.Forms.ToolTipIcon.Info);
+                else if (lastJarvisVisibleState == "starting" && visibleState == "stopped") Notify("Помощник не запустился", "Откройте журнал или диагностику EFREN Lite.", System.Windows.Forms.ToolTipIcon.Error);
+                lastJarvisVisibleState = visibleState;
                 Find<TextBlock>("Connection").Text = "Обновлено " + DateTime.Now.ToString("HH:mm:ss");
                 Measure();
             }
