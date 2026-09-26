@@ -225,6 +225,7 @@ class LocalTTS:
         self.last_render_metrics = {}
         self.last_rvc_metrics = {}
         self.rvc_bridge = None
+        self.rvc_status_path = Path(__file__).resolve().parent / "runtime" / "rvc-status.json"
 
         self.queue = queue.Queue()
         self.thread = None
@@ -478,8 +479,10 @@ class LocalTTS:
         required = (self.rvc_python, bridge, self.rvc_model, self.rvc_index)
         if not self.rvc_enabled or not all(path.exists() for path in required):
             self.rvc_enabled = False
+            self._write_rvc_status("piper", "RVC выключен или не установлен")
             print("[TTS] RVC-голос JARVIS недоступен, используется Piper.")
             return
+        self._write_rvc_status("loading", "Загрузка выбранного RVC-голоса")
         environment = os.environ.copy()
         environment.update(PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
         self.rvc_bridge = subprocess.Popen(
@@ -492,7 +495,9 @@ class LocalTTS:
         ready = self._read_rvc_reply(max(60.0, self.rvc_timeout))
         if not ready or ready.get("status") != "ready":
             self._stop_rvc_bridge()
+            self._write_rvc_status("fallback", "RVC не загрузился; используется Piper")
             raise RuntimeError("RVC-мост не подтвердил готовность голосовой модели")
+        self._write_rvc_status("active", "RVC готов")
 
     def _read_rvc_reply(self, timeout):
         bridge = self.rvc_bridge
@@ -550,10 +555,13 @@ class LocalTTS:
                     print(f"[TTS RVC ERROR] Голосовая модель не ответила за {self.rvc_timeout:.1f} с; RVC отключён до перезапуска, используется Piper.")
                     self._stop_rvc_bridge()
                     self.rvc_enabled = False
+                    self._write_rvc_status("fallback", f"RVC превысил {self.rvc_timeout:.0f} с; используется Piper")
                     return False
                 if answer.get("output"):
+                    self._write_rvc_status("active", "Последняя реплика преобразована RVC")
                     return output.is_file() and output.stat().st_size > 0
                 if answer.get("status") == "error":
+                    self._write_rvc_status("fallback", "Ошибка RVC; используется Piper")
                     print(f"[TTS RVC ERROR] {answer.get('error')}")
                     return False
             except (BrokenPipeError, OSError, ValueError) as exc:
@@ -575,6 +583,20 @@ class LocalTTS:
                 bridge.wait(timeout=3)
             except (OSError, subprocess.TimeoutExpired):
                 pass
+
+    def _write_rvc_status(self, state, message):
+        try:
+            self.rvc_status_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.rvc_status_path.with_suffix(".tmp")
+            temporary.write_text(json.dumps({
+                "state": state, "message": message,
+                "model": self.rvc_model.stem if self.rvc_model else "",
+                "device": self.rvc_device, "threads": self.rvc_cpu_threads,
+                "timestamp": time.time(),
+            }, ensure_ascii=False), encoding="utf-8")
+            temporary.replace(self.rvc_status_path)
+        except OSError:
+            pass
 
     def _worker(self):
         while True:

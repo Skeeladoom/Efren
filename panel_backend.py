@@ -49,6 +49,15 @@ def jarvis_voice_status(root):
         pass
     if not config.get("rvc_enabled", False):
         return "Голос: Piper · выбран «" + name + "», но RVC выключен"
+    try:
+        runtime = json.loads((root / "runtime/rvc-status.json").read_text(encoding="utf-8"))
+        state = str(runtime.get("state", "")) if str(runtime.get("model", "")) == model.stem else ""
+        if state == "fallback":
+            return "Голос: Piper · «" + name + "» не успел обработать реплику"
+        if state == "loading":
+            return "Голос: «" + name + "» · загружается RVC…"
+    except (OSError, ValueError, TypeError):
+        pass
     device = str(config.get("rvc_device", "cpu")).lower()
     mode = "видеоядро / DirectML" if device == "directml" else "CPU, " + str(config.get("rvc_cpu_threads", 4)) + " потока"
     return "Голос: «" + name + "» · " + mode

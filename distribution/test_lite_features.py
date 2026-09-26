@@ -25,6 +25,12 @@ class LiteFeatureTests(unittest.TestCase):
                 "rvc_device": "cpu", "rvc_cpu_threads": 4,
             }), encoding="utf-8")
             self.assertEqual(backend.jarvis_voice_status(root), "Голос: «Тестовый голос» · CPU, 4 потока")
+            (root / "runtime").mkdir()
+            (root / "runtime/rvc-status.json").write_text(json.dumps({
+                "state": "fallback", "model": "voice",
+            }), encoding="utf-8")
+            self.assertEqual(backend.jarvis_voice_status(root),
+                             "Голос: Piper · «Тестовый голос» не успел обработать реплику")
 
     def test_gigaam_wake_word_fallback_only_accepts_command_phrases(self):
         from voice import VoiceListener
