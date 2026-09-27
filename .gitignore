@@ -26,6 +26,7 @@ memory.json
 lite-auth.json
 assistant_names.json
 jarvis_settings.json
+stt_variants_auto.json
 panel_theme.json
 member_permissions.json
 

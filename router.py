@@ -3,18 +3,21 @@
 import json
 import re
 import difflib
+import ast
+import inspect
 from assistant_identity import wake_aliases
 from dataclasses import dataclass
 from pathlib import Path
 
 from discord_tools import parse_discord_voice_command
-from stt_variants import read_dictionary, normalize_text as normalize_variant_text
+from stt_variants import ensure_auto_dictionary, read_dictionary, normalize_text as normalize_variant_text
 
 
 ROUTER_CODE_VERSION = "JARVIS-ROUTER-v0.9.2-JARVIS-WORD-VARIANTS"
 MACRO_PHRASES_FILE = Path(__file__).resolve().parent / "macro_phrases.json"
 MACRO_DISABLED_FILE = Path(__file__).resolve().parent / "macro_disabled.json"
 STT_VARIANTS_FILE = Path(__file__).resolve().parent / "stt_variants.json"
+AUTO_STT_VARIANTS_FILE = Path(__file__).resolve().parent / "stt_variants_auto.json"
 
 
 @dataclass
@@ -558,6 +561,50 @@ class LocalRouter:
         )
 
         self.tools = tools
+        self._automatic_command_words = self._collect_automatic_command_words()
+
+    @classmethod
+    def _collect_automatic_command_words(cls):
+        """Collect words from router constants without maintaining another list."""
+        words = set()
+
+        def visit(value):
+            if isinstance(value, str):
+                words.update(re.findall(r"[A-Za-zА-Яа-яЁё-]{2,80}", value))
+            elif isinstance(value, dict):
+                for key, item in value.items():
+                    visit(key)
+                    visit(item)
+            elif isinstance(value, (tuple, list, set, frozenset)):
+                for item in value:
+                    visit(item)
+
+        for name, value in vars(cls).items():
+            if name.isupper():
+                visit(value)
+        # A number of compact routes keep their phrases directly beside the
+        # handler instead of in class constants. Include their string literals
+        # too, so adding a new route automatically expands the morphology.
+        try:
+            tree = ast.parse(inspect.getsource(cls))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    visit(node.value)
+        except (OSError, TypeError, IndentationError, SyntaxError):
+            pass
+        return words
+
+    def _auto_variant_dictionary(self):
+        words = set(self._automatic_command_words)
+        words.update(self.wake_words)
+        try:
+            registry = json.loads(MACRO_PHRASES_FILE.read_text(encoding="utf-8"))
+            if isinstance(registry, dict):
+                for phrase in registry:
+                    words.update(re.findall(r"[A-Za-zА-Яа-яЁё-]{2,80}", str(phrase)))
+        except (OSError, ValueError, TypeError):
+            pass
+        return ensure_auto_dictionary(AUTO_STT_VARIANTS_FILE, words)
 
     # =========================================================
     # NORMALIZATION
@@ -594,8 +641,9 @@ class LocalRouter:
                 text,
             )
 
-        # User-selected real word forms are an extra layer after the built-in
-        # ASR fixes. Replacement is boundary-aware; substrings are untouched.
+        # Automatic command/name morphology is followed by the manual layer,
+        # so user-selected variants always win an ambiguity.
+        text = normalize_variant_text(text, self._auto_variant_dictionary())
         text = normalize_variant_text(text, read_dictionary(STT_VARIANTS_FILE))
 
         text = self.norm(text)

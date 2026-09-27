@@ -36,7 +36,26 @@ class LiteFeatureTests(unittest.TestCase):
                  patch.object(identity, "STT_VARIANTS_FILE", variants_file), \
                  patch.object(identity, "_signature", None), \
                  patch.object(identity, "_names", identity.DEFAULT_NAMES.copy()):
-                self.assertEqual(identity.wake_aliases("jarvis", ("джарвис",)), ("мопс", "мобс", "мобз"))
+                aliases = identity.wake_aliases("jarvis", ("джарвис",))
+                self.assertEqual(aliases[:3], ("мопс", "мобс", "мобз"))
+                self.assertIn("мопсу", aliases)
+
+    def test_command_and_macro_words_get_automatic_real_forms(self):
+        import router as router_module
+        import stt_variants as variants_module
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            automatic = root / "stt_variants_auto.json"
+            macros = root / "macro_phrases.json"
+            macros.write_text(json.dumps({"открой диму": "example.jmacro"}, ensure_ascii=False), encoding="utf-8")
+            with patch.object(router_module, "AUTO_STT_VARIANTS_FILE", automatic), \
+                 patch.object(router_module, "MACRO_PHRASES_FILE", macros), \
+                 patch.object(variants_module, "_auto_cache", {}):
+                tools = MagicMock()
+                tools.known_app_from_text.return_value = None
+                local = LocalRouter(["мопс"], tools)
+                self.assertEqual(local.normalize_stt("мопсу открой диме"), "мопс открой диму")
+                self.assertTrue(automatic.is_file())
 
     def test_computer_power_routes_do_not_capture_jarvis_exit(self):
         router = LocalRouter(["джарвис"], MagicMock())

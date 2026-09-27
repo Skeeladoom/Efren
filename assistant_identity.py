@@ -47,13 +47,15 @@ def wake_aliases(key, defaults):
     # of the current assistant name must be available directly to the voice
     # listener rather than waiting for normalize_stt().
     try:
-        from stt_variants import read_dictionary
+        from stt_variants import generate_phrase_forms, read_dictionary
         dictionary = read_dictionary(STT_VARIANTS_FILE)
-        for variant in dictionary.get(primary, ()):
+        variants = list(dictionary.get(primary, ()))
+        variants.extend(generate_phrase_forms(primary))
+        for variant in variants:
             variant = normalize_name(variant)
             if variant and variant not in aliases:
                 aliases.append(variant)
-    except (ImportError, OSError, ValueError, TypeError):
+    except (ImportError, OSError, RuntimeError, ValueError, TypeError):
         pass
     return tuple(dict.fromkeys(aliases))
 
