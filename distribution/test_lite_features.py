@@ -91,7 +91,8 @@ class LiteFeatureTests(unittest.TestCase):
     def test_keyboard_shortcuts_and_function_keys_are_routed(self):
         router = LocalRouter(["мопс"], MagicMock())
         for phrase in ("контрол с", "ctrl+shift+esc", "альт таб", "виндовс d", "f12",
-                       "ф один", "ф пять", "эф двенадцать", "7", "a"):
+                       "ф один", "ф пять", "эф двенадцать", "бэк спейс", "нумлок",
+                       "скролл лок", "7", "a"):
             with self.subTest(phrase=phrase):
                 route = router.route("мопс нажми " + phrase)
                 self.assertEqual(route.kind, "press_key")
@@ -112,6 +113,16 @@ class LiteFeatureTests(unittest.TestCase):
              patch.object(tools_module, "win32clipboard", MagicMock()):
             self.assertEqual(tool.press_key("ф пять"), "")
         fake_keyboard.press.assert_called_once_with("f5")
+
+        fake_keyboard.reset_mock()
+        with patch.object(tools_module, "pyautogui", fake_keyboard), \
+             patch.object(tools_module, "win32clipboard", MagicMock()):
+            self.assertEqual(tool.press_key("бэк спэйс"), "")
+            self.assertEqual(tool.press_key("нумлок"), "")
+        self.assertEqual(
+            [call.args[0] for call in fake_keyboard.press.call_args_list],
+            ["backspace", "numlock"],
+        )
 
     def test_launch_macros_have_open_start_alias_and_close_inverse(self):
         import router as router_module

@@ -1063,10 +1063,14 @@ class LocalRouter:
         named = {
             "пробел", "спейс", "space", "энтер", "ентер", "enter", "ввод",
             "эскейп", "эск", "escape", "esc", "таб", "tab", "бэкспейс",
-            "backspace", "делит", "delete", "инсерт", "insert", "домой", "home",
+            "бэк спейс", "бэк спэйс", "бекспейс", "бек спейс", "бек спэйс",
+            "backspace", "back space",
+            "делит", "delete", "инсерт", "insert", "домой", "home",
             "конец", "end", "пейдж ап", "page up", "pageup", "пейдж даун",
             "page down", "pagedown", "капс лок", "caps lock", "capslock",
             "принт скрин", "print screen", "printscreen", "виндовс", "windows",
+            "нумлок", "нум лок", "numlock", "num lock", "скролл лок", "scroll lock",
+            "scrolllock", "пауза", "pause",
             "пуск", "win", "стрелка вверх", "стрелка вниз", "стрелка влево",
             "стрелка вправо", "вверх", "вниз", "влево", "вправо",
         }
