@@ -7,6 +7,7 @@ from pathlib import Path
 
 BASE_DIR = Path(sys.executable).resolve().parent.parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 NAMES_FILE = BASE_DIR / "assistant_names.json"
+STT_VARIANTS_FILE = BASE_DIR / "stt_variants.json"
 DEFAULT_NAMES = {"friday": "Пятница", "jarvis": "Джарвис"}
 _signature = None
 _names = DEFAULT_NAMES.copy()
@@ -40,7 +41,21 @@ def custom_wake(key):
 
 def wake_aliases(key, defaults):
     custom = custom_wake(key)
-    return (custom,) if custom else defaults
+    primary = custom or normalize_name(names()[key])
+    aliases = [primary] if custom else [normalize_name(value) for value in defaults]
+    # Wake detection happens before Router normalization. Therefore variants
+    # of the current assistant name must be available directly to the voice
+    # listener rather than waiting for normalize_stt().
+    try:
+        from stt_variants import read_dictionary
+        dictionary = read_dictionary(STT_VARIANTS_FILE)
+        for variant in dictionary.get(primary, ()):
+            variant = normalize_name(variant)
+            if variant and variant not in aliases:
+                aliases.append(variant)
+    except (ImportError, OSError, ValueError, TypeError):
+        pass
+    return tuple(dict.fromkeys(aliases))
 
 
 def save_name(key, value):

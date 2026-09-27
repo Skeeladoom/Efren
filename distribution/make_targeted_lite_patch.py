@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent / "release-lite-clean"
 OUTPUT = Path(__file__).resolve().parent / "EFREN-Lite-Patch.zip"
 FILES = {
-    "apply-lite-patch.ps1", "lite_policy.py", "main.py", "macro_runner.py",
+    "apply-lite-patch.ps1", "assistant_identity.py", "lite_policy.py", "main.py", "macro_runner.py",
     "panel_backend.py", "panel_features.py", "router.py", "stt_variants.py",
     "tools.py", "lite-build.json", "rvc_engine/jarvis_bridge.py",
     "panel-wpf/App.cs", "panel-wpf/MainWindow.xaml",

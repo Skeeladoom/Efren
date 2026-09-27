@@ -24,6 +24,20 @@ class LiteFeatureTests(unittest.TestCase):
         router = LocalRouter(["джарвис"], MagicMock())
         self.assertEqual(router.normalize_stt("аткрой настройки"), "открой настройки")
 
+    def test_custom_wake_uses_stt_variants_before_router(self):
+        import assistant_identity as identity
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            names_file = root / "assistant_names.json"
+            variants_file = root / "stt_variants.json"
+            names_file.write_text(json.dumps({"jarvis": "Мопс", "friday": "Пятница"}, ensure_ascii=False), encoding="utf-8")
+            variants_file.write_text(json.dumps({"мопс": ["мопс", "мобс", "мобз"]}, ensure_ascii=False), encoding="utf-8")
+            with patch.object(identity, "NAMES_FILE", names_file), \
+                 patch.object(identity, "STT_VARIANTS_FILE", variants_file), \
+                 patch.object(identity, "_signature", None), \
+                 patch.object(identity, "_names", identity.DEFAULT_NAMES.copy()):
+                self.assertEqual(identity.wake_aliases("jarvis", ("джарвис",)), ("мопс", "мобс", "мобз"))
+
     def test_computer_power_routes_do_not_capture_jarvis_exit(self):
         router = LocalRouter(["джарвис"], MagicMock())
         self.assertEqual(router.route("выключи компьютер").kind, "computer_shutdown")
