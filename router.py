@@ -900,6 +900,19 @@ class LocalRouter:
             text
         )
 
+        # "Закрой активное окно" is an action, not a question about which
+        # window is active. Action verbs always take precedence here.
+        if any(
+            phrase in t
+            for phrase in (
+                *self.WINDOW_CLOSE_WORDS,
+                *self.MINIMIZE_WORDS,
+                *self.MAXIMIZE_WORDS,
+                *self.RESTORE_WORDS,
+            )
+        ):
+            return False
+
         direct_phrases = (
             "какое окно активно",
             "какое окно сейчас активно",
@@ -1026,9 +1039,13 @@ class LocalRouter:
             " ",
             remainder,
         )
-        if not self.norm(remainder):
+        remainder = self.norm(remainder)
+        if not remainder:
             return "active"
-        return None
+        # Preserve a spoken window title (for example "окно Загрузки").
+        # _find_window performs a named lookup and raises an error when it is
+        # absent; it never falls back to the foreground window.
+        return remainder
 
     # =========================================================
     # ROUTER

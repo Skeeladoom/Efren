@@ -57,9 +57,22 @@ class LiteFeatureTests(unittest.TestCase):
         self.assertEqual(route.args["target"], "soundpad")
 
         unknown = router.route("мопс закрой абракадабру")
-        self.assertEqual(unknown.kind, "say")
-        self.assertIn("не закрываю", unknown.args["text"].lower())
+        self.assertEqual(unknown.kind, "close_window")
+        self.assertEqual(unknown.args["target"], "абракадабру")
         self.assertEqual(router.route("мопс закрой окно").args["target"], "active")
+
+    def test_close_active_and_named_window_are_actions(self):
+        tools = MagicMock()
+        tools.known_app_from_text.return_value = None
+        router = LocalRouter(["мопс"], tools)
+
+        active = router.route("мопс закрой активное окно")
+        self.assertEqual(active.kind, "close_window")
+        self.assertEqual(active.args["target"], "active")
+
+        named = router.route("мопс закрой окно загрузки")
+        self.assertEqual(named.kind, "close_window")
+        self.assertEqual(named.args["target"], "загрузки")
 
     def test_soundpad_window_title_is_short_for_speech(self):
         from tools import WindowsTools
