@@ -808,13 +808,69 @@ exit 2
             "бэкспейс": "backspace", "backspace": "backspace",
             "делит": "delete", "delete": "delete",
             "виндовс": "win", "windows": "win", "пуск": "win", "win": "win",
+            "инсерт": "insert", "insert": "insert",
+            "домой": "home", "home": "home", "конец": "end", "end": "end",
+            "пейдж ап": "pageup", "page up": "pageup", "pageup": "pageup",
+            "пейдж даун": "pagedown", "page down": "pagedown", "pagedown": "pagedown",
+            "капс лок": "capslock", "caps lock": "capslock", "capslock": "capslock",
+            "принт скрин": "printscreen", "print screen": "printscreen", "printscreen": "printscreen",
+            "контрол": "ctrl", "контроль": "ctrl", "control": "ctrl", "ctrl": "ctrl",
+            "альт": "alt", "alt": "alt", "шифт": "shift", "shift": "shift",
+            "си": "c", "вэ": "v", "икс": "x", "зет": "z", "зэд": "z", "эй": "a",
         }
         normalized = self._norm(key).replace("клавишу ", "").replace("кнопку ", "")
-        resolved = aliases.get(normalized)
-        if not resolved:
+        normalized = normalized.replace(" плюс ", "+").replace(" + ", "+")
+
+        # Common Russian STT spellings of familiar shortcuts.
+        shortcut_aliases = {
+            "контрол с": ("ctrl", "c"), "контрол си": ("ctrl", "c"),
+            "контроль с": ("ctrl", "c"), "контроль си": ("ctrl", "c"),
+            "контрол в": ("ctrl", "v"), "контрол вэ": ("ctrl", "v"),
+            "контроль в": ("ctrl", "v"), "контроль вэ": ("ctrl", "v"),
+            "контрол х": ("ctrl", "x"), "контрол икс": ("ctrl", "x"),
+            "контрол а": ("ctrl", "a"), "контрол эй": ("ctrl", "a"),
+            "контрол з": ("ctrl", "z"), "контрол зет": ("ctrl", "z"),
+        }
+        russian_layout_keys = dict(zip(
+            "йцукенгшщзхъфывапролджэячсмитьбю",
+            "qwertyuiop[]asdfghjkl;'zxcvbnm,.",
+        ))
+        resolved_keys = shortcut_aliases.get(normalized)
+        if resolved_keys is None:
+            parts = [part for part in re.split(r"\+|\s+", normalized) if part]
+            if normalized in aliases:
+                resolved_keys = (aliases[normalized],)
+            elif re.fullmatch(r"f(?:[1-9]|1[0-2])", normalized):
+                resolved_keys = (normalized,)
+            elif re.fullmatch(r"[a-z0-9]", normalized):
+                resolved_keys = (normalized,)
+            elif normalized in russian_layout_keys:
+                resolved_keys = (russian_layout_keys[normalized],)
+            else:
+                resolved = []
+                for part in parts:
+                    value = aliases.get(
+                        part,
+                        russian_layout_keys.get(
+                            part,
+                            part if re.fullmatch(r"[a-z0-9]", part) else None,
+                        ),
+                    )
+                    if not value or value in resolved:
+                        resolved = []
+                        break
+                    resolved.append(value)
+                resolved_keys = tuple(resolved)
+
+        if not resolved_keys:
             raise ToolError(f"Не знаю клавишу «{key}».")
-        pyautogui.press(resolved)
-        return f"Нажал клавишу {normalized}."
+        if len(resolved_keys) == 1:
+            pyautogui.press(resolved_keys[0])
+        else:
+            pyautogui.hotkey(*resolved_keys)
+        # Empty result intentionally suppresses TTS and console chatter. The
+        # recognised command itself remains visible in the command journal.
+        return ""
 
     def type_text(self, text: str, submit=False) -> str:
         self._require_keyboard()

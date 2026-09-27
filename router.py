@@ -1047,6 +1047,43 @@ class LocalRouter:
         # absent; it never falls back to the foreground window.
         return remainder
 
+    @staticmethod
+    def _looks_like_keyboard_command(value):
+        """Return True only for known keys/shortcuts, not arbitrary UI labels."""
+        text = " ".join(str(value or "").lower().strip().split())
+        if not text:
+            return False
+        text = text.replace(" плюс ", "+").replace(" + ", "+")
+        named = {
+            "пробел", "спейс", "space", "энтер", "ентер", "enter", "ввод",
+            "эскейп", "эск", "escape", "esc", "таб", "tab", "бэкспейс",
+            "backspace", "делит", "delete", "инсерт", "insert", "домой", "home",
+            "конец", "end", "пейдж ап", "page up", "pageup", "пейдж даун",
+            "page down", "pagedown", "капс лок", "caps lock", "capslock",
+            "принт скрин", "print screen", "printscreen", "виндовс", "windows",
+            "пуск", "win", "стрелка вверх", "стрелка вниз", "стрелка влево",
+            "стрелка вправо", "вверх", "вниз", "влево", "вправо",
+        }
+        if text in named or re.fullmatch(r"f(?:[1-9]|1[0-2])", text):
+            return True
+        if re.fullmatch(r"[a-zа-яё0-9]", text):
+            return True
+
+        tokens = [part.strip() for part in re.split(r"\+|\s+", text) if part.strip()]
+        modifiers = {"ctrl", "control", "контрол", "контроль", "альт", "alt",
+                     "shift", "шифт", "win", "windows", "виндовс", "пуск"}
+        simple = set("abcdefghijklmnopqrstuvwxyz0123456789") | set("йцукенгшщзхъфывапролджэячсмитьбю") | {
+            "си", "вэ", "икс", "зет", "зэд", "эй", "таб", "tab", "энтер",
+            "enter", "ввод", "эск", "esc", "escape", "делит", "delete",
+            "пробел", "space", "вверх", "вниз", "влево", "вправо",
+        }
+        return (
+            2 <= len(tokens) <= 4
+            and tokens[0] in modifiers
+            and all(token in modifiers or token in simple or re.fullmatch(r"f(?:[1-9]|1[0-2])", token)
+                    for token in tokens)
+        )
+
     # =========================================================
     # ROUTER
     # =========================================================
@@ -1360,13 +1397,10 @@ class LocalRouter:
             return Route("browser_search", {"query": search_match.group(1).strip(), "browser": "chrome"})
 
         key_match = re.match(
-            r"^нажми\s+(?:на\s+)?(?:клавишу\s+|кнопку\s+)?"
-            r"(пробел|спейс|space|энтер|ентер|enter|ввод|эскейп|эск|escape|esc|таб|tab|"
-            r"виндовс|windows|пуск|win|"
-            r"стрелку?\s+(?:вверх|вниз|влево|вправо)|вверх|вниз|влево|вправо|бэкспейс|backspace|делит|delete)$",
+            r"^нажми\s+(?:на\s+)?(?:клавишу\s+|кнопку\s+)?(.+)$",
             t,
         )
-        if key_match:
+        if key_match and self._looks_like_keyboard_command(key_match.group(1)):
             return Route("press_key", {"key": key_match.group(1).replace("стрелку", "стрелка")})
 
         type_match = re.match(

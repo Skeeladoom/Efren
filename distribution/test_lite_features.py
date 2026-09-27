@@ -88,6 +88,24 @@ class LiteFeatureTests(unittest.TestCase):
         self.assertEqual(route.kind, "press_key")
         self.assertEqual(route.args["key"], "виндовс")
 
+    def test_keyboard_shortcuts_and_function_keys_are_routed(self):
+        router = LocalRouter(["мопс"], MagicMock())
+        for phrase in ("контрол с", "ctrl+shift+esc", "альт таб", "виндовс d", "f12", "7", "a"):
+            with self.subTest(phrase=phrase):
+                route = router.route("мопс нажми " + phrase)
+                self.assertEqual(route.kind, "press_key")
+        self.assertEqual(router.route("мопс нажми сведения").kind, "click_ui_element")
+
+    def test_key_press_is_silent(self):
+        import tools as tools_module
+        from tools import WindowsTools
+        tool = WindowsTools({}, Path.cwd())
+        fake_keyboard = MagicMock()
+        with patch.object(tools_module, "pyautogui", fake_keyboard), \
+             patch.object(tools_module, "win32clipboard", MagicMock()):
+            self.assertEqual(tool.press_key("ctrl+shift+esc"), "")
+        fake_keyboard.hotkey.assert_called_once_with("ctrl", "shift", "esc")
+
     def test_launch_macros_have_open_start_alias_and_close_inverse(self):
         import router as router_module
         with tempfile.TemporaryDirectory() as directory:
