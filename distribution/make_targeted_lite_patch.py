@@ -1,4 +1,4 @@
-"""Build the 0.1.8 targeted update without repacking unchanged AI models."""
+"""Build the 0.1.9 targeted update without repacking unchanged AI models."""
 import hashlib
 import json
 import zipfile
@@ -46,7 +46,7 @@ def build():
             selected.append(path)
     entries = [{"path": p.relative_to(ROOT).as_posix(), "size": p.stat().st_size,
                 "sha256": sha256(p)} for p in sorted(selected)]
-    manifest = {"format": "EFREN-LITE-PATCH-1", "to_version": "0.1.8", "files": entries}
+    manifest = {"format": "EFREN-LITE-PATCH-1", "to_version": "0.1.9", "files": entries}
     with zipfile.ZipFile(OUTPUT, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         archive.writestr("patch-manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
         for path in selected:

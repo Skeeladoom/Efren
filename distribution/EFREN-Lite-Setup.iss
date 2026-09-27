@@ -1,5 +1,5 @@
 #define MyAppName "EFREN Lite"
-#define MyAppVersion "0.1.8"
+#define MyAppVersion "0.1.9"
 #define MyAppPublisher "Skeeladoom"
 
 [Setup]
@@ -26,7 +26,7 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Files]
 ; Personal state survives both reinstall and automatic update.
-Source: "release-lite-clean\*"; DestDir: "{app}"; Excludes: "models\whisper-base\*,rvc_models\store\*,config.json,assistant_names.json,jarvis_settings.json,panel_theme.json,macro_phrases.json,macro_disabled.json,stt_variants.json,lite-auth.json,logs\*,backups\*,updates\*,scenarios\*,сценарии\*,*.pid,memory.json,runtime\*-test*,runtime\cuda-rvc-*.wav,runtime\rvc-status.json,*\__pycache__\*,*\tests\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "release-lite-clean\*"; DestDir: "{app}"; Excludes: "models\whisper-base\*,rvc_models\store\*,config.json,assistant_names.json,jarvis_settings.json,panel_theme.json,macro_phrases.json,macro_disabled.json,stt_variants.json,stt_variants_auto.json,lite-auth.json,logs\*,backups\*,updates\*,scenarios\*,сценарии\*,*.pid,memory.json,runtime\*-test*,runtime\cuda-rvc-*.wav,runtime\rvc-status.json,*\__pycache__\*,*\tests\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; SciPy imports this small NumPy helper even outside test runs.
 Source: "release-lite-clean\runtime\python\Lib\site-packages\numpy\_core\tests\_natype.py"; DestDir: "{app}\runtime\python\Lib\site-packages\numpy\_core\tests"; Flags: ignoreversion
 Source: "release-lite-clean\config.json"; DestDir: "{app}"; Flags: onlyifdoesntexist
