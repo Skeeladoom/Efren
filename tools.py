@@ -670,7 +670,7 @@ class WindowsTools:
         return "Открытые окна: " + "; ".join(titles) + "."
 
     def click_ui_element(self, label: str) -> str:
-        """Click a visible Win32 child control by its accessible text."""
+        """Click a control in the active window by Win32 text or Windows UIA."""
         wanted = self._norm(label)
         if not wanted:
             raise ToolError("Не указано, на какой элемент нажать.")
@@ -693,9 +693,7 @@ class WindowsTools:
 
         user32.EnumChildWindows(parent, CALLBACK(enum_child), 0)
         if not matches:
-            raise ToolError(
-                f"Не нашёл доступный для нажатия элемент «{label}» в активном окне."
-            )
+            return self._click_uia_element(label)
 
         hwnd, text = min(matches, key=lambda item: len(item[1]))
         rect = wintypes.RECT()
@@ -707,6 +705,89 @@ class WindowsTools:
         user32.mouse_event(0x0002, 0, 0, 0, 0)
         user32.mouse_event(0x0004, 0, 0, 0, 0)
         return f"Нажал «{text}»."
+
+    def _click_uia_element(self, label: str) -> str:
+        """Invoke a modern XAML/UWP/WPF control through Windows UI Automation."""
+        script = r'''
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class EfrenUiaNative {
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+}
+'@
+$wanted = [string]$env:EFREN_UI_LABEL
+$wanted = $wanted.Trim()
+$root = [System.Windows.Automation.AutomationElement]::FromHandle(
+    [EfrenUiaNative]::GetForegroundWindow()
+)
+if ($null -eq $root) { throw 'Активное окно недоступно для UI Automation.' }
+$items = $root.FindAll(
+    [System.Windows.Automation.TreeScope]::Descendants,
+    [System.Windows.Automation.Condition]::TrueCondition
+)
+$exact = @()
+$partial = @()
+foreach ($item in $items) {
+    try { $name = $item.Current.Name.Trim() } catch { continue }
+    if (!$name) { continue }
+    if ($name.Equals($wanted, [StringComparison]::CurrentCultureIgnoreCase)) {
+        $exact += $item
+    } elseif ($name.IndexOf($wanted, [StringComparison]::CurrentCultureIgnoreCase) -ge 0) {
+        $partial += $item
+    }
+}
+$candidates = if ($exact.Count) { $exact } else { $partial }
+foreach ($item in $candidates) {
+    $pattern = $null
+    if ($item.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
+        $pattern.Invoke(); Write-Output ('OK:' + $item.Current.Name); exit 0
+    }
+    if ($item.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$pattern)) {
+        $pattern.Toggle(); Write-Output ('OK:' + $item.Current.Name); exit 0
+    }
+    if ($item.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$pattern)) {
+        $pattern.Select(); Write-Output ('OK:' + $item.Current.Name); exit 0
+    }
+    if ($item.TryGetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern, [ref]$pattern)) {
+        $pattern.DoDefaultAction(); Write-Output ('OK:' + $item.Current.Name); exit 0
+    }
+}
+Write-Output 'NOT_FOUND'
+exit 2
+'''
+        environment = os.environ.copy()
+        environment["EFREN_UI_LABEL"] = str(label or "")
+        try:
+            completed = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy", "Bypass",
+                    "-Command", script,
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=8,
+                env=environment,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ToolError(f"Не удалось проверить современные элементы окна: {exc}") from exc
+
+        output = (completed.stdout or "").strip()
+        success = next((line[3:].strip() for line in output.splitlines() if line.startswith("OK:")), "")
+        if completed.returncode == 0 and success:
+            return f"Нажал «{success}»."
+        raise ToolError(
+            f"Не нашёл доступный для нажатия элемент «{label}» в активном окне."
+        )
 
     @staticmethod
     def _require_keyboard():
@@ -726,6 +807,7 @@ class WindowsTools:
             "стрелка вправо": "right", "вправо": "right",
             "бэкспейс": "backspace", "backspace": "backspace",
             "делит": "delete", "delete": "delete",
+            "виндовс": "win", "windows": "win", "пуск": "win", "win": "win",
         }
         normalized = self._norm(key).replace("клавишу ", "").replace("кнопку ", "")
         resolved = aliases.get(normalized)

@@ -69,6 +69,12 @@ class LiteFeatureTests(unittest.TestCase):
             "Soundpad",
         )
 
+    def test_windows_button_is_routed_as_keyboard_key(self):
+        router = LocalRouter(["мопс"], MagicMock())
+        route = router.route("мопс нажми виндовс")
+        self.assertEqual(route.kind, "press_key")
+        self.assertEqual(route.args["key"], "виндовс")
+
     def test_launch_macros_have_open_start_alias_and_close_inverse(self):
         import router as router_module
         with tempfile.TemporaryDirectory() as directory:
