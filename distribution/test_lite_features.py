@@ -48,6 +48,27 @@ class LiteFeatureTests(unittest.TestCase):
         self.assertEqual(router.route("выключись").kind, "exit")
         self.assertEqual(router.route("останови джарвиса").kind, "exit")
 
+    def test_soundpad_asr_alias_and_unknown_window_safety(self):
+        tools = MagicMock()
+        tools.known_app_from_text.return_value = None
+        router = LocalRouter(["мопс"], tools)
+        route = router.route("мопс закрой сонпад")
+        self.assertEqual(route.kind, "close_window")
+        self.assertEqual(route.args["target"], "soundpad")
+
+        unknown = router.route("мопс закрой абракадабру")
+        self.assertEqual(unknown.kind, "say")
+        self.assertIn("не закрываю", unknown.args["text"].lower())
+        self.assertEqual(router.route("мопс закрой окно").args["target"], "active")
+
+    def test_soundpad_window_title_is_short_for_speech(self):
+        from tools import WindowsTools
+        tool = WindowsTools({}, Path.cwd())
+        self.assertEqual(
+            tool._spoken_window_name("soundpad", r"Soundpad [C:\Soundpad\список звуков.sp1*]"),
+            "Soundpad",
+        )
+
     def test_launch_macros_have_open_start_alias_and_close_inverse(self):
         import router as router_module
         with tempfile.TemporaryDirectory() as directory:

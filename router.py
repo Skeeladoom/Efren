@@ -223,6 +223,10 @@ class LocalRouter:
         "soundpad": "soundpad",
         "саундпад": "soundpad",
         "саунд пад": "soundpad",
+        "сонпад": "soundpad",
+        "сон пад": "soundpad",
+        "саунпад": "soundpad",
+        "сомпад": "soundpad",
         "lossless scaling": "lossless_scaling",
         "лосслесс скейлинг": "lossless_scaling",
         "лослес скейлинг": "lossless_scaling",
@@ -1002,7 +1006,29 @@ class LocalRouter:
         if system_target:
             return system_target
 
-        return "active"
+        # Never turn an unrecognised named target into the foreground window.
+        # Otherwise an ASR typo may close or alter an unrelated active window.
+        action_words = (
+            *self.MINIMIZE_WORDS,
+            *self.MAXIMIZE_WORDS,
+            *self.RESTORE_WORDS,
+            *self.WINDOW_CLOSE_WORDS,
+        )
+        remainder = t
+        for phrase in sorted(action_words, key=len, reverse=True):
+            remainder = re.sub(
+                rf"(?<!\w){re.escape(phrase)}(?!\w)",
+                " ",
+                remainder,
+            )
+        remainder = re.sub(
+            r"(?<!\w)(?:окно|приложение|программу|это|его|её|пожалуйста|сейчас)(?!\w)",
+            " ",
+            remainder,
+        )
+        if not self.norm(remainder):
+            return "active"
+        return None
 
     # =========================================================
     # ROUTER
@@ -1386,13 +1412,13 @@ class LocalRouter:
             phrase in t
             for phrase in self.MINIMIZE_WORDS
         ):
+            target = self._window_target(t)
+            if target is None:
+                return Route("say", {"text": "Не нашёл указанное приложение. Активное окно не трогаю."})
             return Route(
                 "minimize_window",
                 {
-                    "target":
-                        self._window_target(
-                            t
-                        ),
+                    "target": target,
                 },
             )
 
@@ -1404,13 +1430,13 @@ class LocalRouter:
             phrase in t
             for phrase in self.MAXIMIZE_WORDS
         ):
+            target = self._window_target(t)
+            if target is None:
+                return Route("say", {"text": "Не нашёл указанное приложение. Активное окно не трогаю."})
             return Route(
                 "maximize_window",
                 {
-                    "target":
-                        self._window_target(
-                            t
-                        ),
+                    "target": target,
                 },
             )
 
@@ -1426,13 +1452,13 @@ class LocalRouter:
                 "на весь экран"
                 not in t
             ):
+                target = self._window_target(t)
+                if target is None:
+                    return Route("say", {"text": "Не нашёл указанное приложение. Активное окно не трогаю."})
                 return Route(
                     "restore_window",
                     {
-                        "target":
-                            self._window_target(
-                                t
-                            ),
+                        "target": target,
                     },
                 )
 
@@ -1484,13 +1510,13 @@ class LocalRouter:
             phrase in t
             for phrase in self.WINDOW_CLOSE_WORDS
         ):
+            target = self._window_target(t)
+            if target is None:
+                return Route("say", {"text": "Не нашёл указанное приложение. Активное окно не закрываю."})
             return Route(
                 "close_window",
                 {
-                    "target":
-                        self._window_target(
-                            t
-                        ),
+                    "target": target,
                 },
             )
 

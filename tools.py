@@ -114,6 +114,10 @@ class WindowsTools:
             "soundpad": "soundpad",
             "саундпад": "soundpad",
             "саунд пад": "soundpad",
+            "сонпад": "soundpad",
+            "сон пад": "soundpad",
+            "саунпад": "soundpad",
+            "сомпад": "soundpad",
             "lossless scaling": "lossless_scaling",
             "лосслесс скейлинг": "lossless_scaling",
             "лослес скейлинг": "lossless_scaling",
@@ -268,6 +272,25 @@ class WindowsTools:
             normalized,
         )
 
+    def _spoken_window_name(self, target, title):
+        """Return a short stable application name suitable for TTS."""
+        display_names = {
+            "soundpad": "Soundpad",
+            "dota2": "Dota 2",
+            "cs2": "Counter-Strike 2",
+            "lossless_scaling": "Lossless Scaling",
+            "vscode": "Visual Studio Code",
+            "steam": "Steam",
+            "discord": "Discord",
+            "ayugram": "Telegram",
+        }
+        canonical = self.canonical_app(target)
+        if canonical in display_names:
+            return display_names[canonical]
+
+        short_title = re.sub(r"\s*[\[(].*$", "", (title or "").strip()).strip()
+        return short_title or "приложение"
+
     def known_app_from_text(self, text):
         text = self._norm(text)
 
@@ -318,7 +341,7 @@ class WindowsTools:
                 user32 = self._user32()
                 user32.ShowWindow(hwnd, self.SW_RESTORE)
                 user32.SetForegroundWindow(hwnd)
-                return f"Переключился на {self._title(hwnd)}."
+                return f"Переключился на {self._spoken_window_name(canonical, self._title(hwnd))}."
 
         # --------------------------------------------
         # STEAM APPLICATIONS
@@ -627,9 +650,7 @@ class WindowsTools:
             "active"
         )
 
-        title = self._title(
-            hwnd
-        )
+        title = self._spoken_window_name("active", self._title(hwnd))
 
         return (
             f"Активное окно: {title}."
@@ -959,9 +980,7 @@ class WindowsTools:
             target
         )
 
-        title = self._title(
-            hwnd
-        )
+        title = self._spoken_window_name(target, self._title(hwnd))
 
         self._user32().ShowWindow(
             hwnd,
@@ -1060,9 +1079,7 @@ class WindowsTools:
             target
         )
 
-        title = self._title(
-            hwnd
-        )
+        title = self._spoken_window_name(target, self._title(hwnd))
 
         user32 = self._user32()
 
@@ -1097,9 +1114,7 @@ class WindowsTools:
             target
         )
 
-        title = self._title(
-            hwnd
-        )
+        title = self._spoken_window_name(target, self._title(hwnd))
 
         self._user32().PostMessageW(
             hwnd,
