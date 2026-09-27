@@ -1054,6 +1054,12 @@ class LocalRouter:
         if not text:
             return False
         text = text.replace(" плюс ", "+").replace(" + ", "+")
+        function_number = (
+            r"(?:[1-9]|1[0-2]|один|два|три|четыре|пять|шесть|семь|восемь|"
+            r"девять|десять|одиннадцать|двенадцать)"
+        )
+        if re.fullmatch(rf"(?:f|ф|эф)\s*{function_number}", text):
+            return True
         named = {
             "пробел", "спейс", "space", "энтер", "ентер", "enter", "ввод",
             "эскейп", "эск", "escape", "esc", "таб", "tab", "бэкспейс",

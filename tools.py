@@ -821,6 +821,20 @@ exit 2
         normalized = self._norm(key).replace("клавишу ", "").replace("кнопку ", "")
         normalized = normalized.replace(" плюс ", "+").replace(" + ", "+")
 
+        number_words = {
+            "один": 1, "два": 2, "три": 3, "четыре": 4,
+            "пять": 5, "шесть": 6, "семь": 7, "восемь": 8,
+            "девять": 9, "десять": 10, "одиннадцать": 11, "двенадцать": 12,
+        }
+        function_match = re.fullmatch(
+            r"(?:f|ф|эф)\s*(1[0-2]|[1-9]|один|два|три|четыре|пять|шесть|семь|восемь|девять|десять|одиннадцать|двенадцать)",
+            normalized,
+        )
+        if function_match:
+            spoken_number = function_match.group(1)
+            number = int(spoken_number) if spoken_number.isdigit() else number_words[spoken_number]
+            normalized = f"f{number}"
+
         # Common Russian STT spellings of familiar shortcuts.
         shortcut_aliases = {
             "контрол с": ("ctrl", "c"), "контрол си": ("ctrl", "c"),
