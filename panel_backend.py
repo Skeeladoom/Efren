@@ -39,7 +39,11 @@ def jarvis_voice_status(root):
         return "Голос: Piper (базовый)"
     model_value = str(config.get("rvc_model", "")).strip()
     if not model_value:
-        return "Голос: Piper (базовый)"
+        piper_name = Path(str(config.get("piper_model", ""))).stem
+        labels = {"ru_RU-irina-medium": "Ирина", "ru_RU-ruslan-medium": "Руслан",
+                  "ru_RU-denis-medium": "Денис", "ru_RU-dmitri-medium": "Дмитрий",
+                  "uk_UA-lada-x_low": "Лада", "uk_UA-tetiana-high": "Татьяна"}
+        return "Голос: Piper · " + labels.get(piper_name, "базовый")
     model = Path(model_value)
     if not model.is_absolute(): model = root / model
     name = model.stem

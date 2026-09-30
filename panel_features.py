@@ -17,6 +17,13 @@ from lite_policy import is_lite
 
 
 HF_VOICE_REPO = "niobures/RVC-Models"
+HF_PIPER_REPO = "rhasspy/piper-voices"
+PIPER_VOICES = {
+    "irina": {"name": "Ирина", "gender": "женский", "quality": "medium", "locale": "ru_RU", "language": "русский"},
+    "ruslan": {"name": "Руслан", "gender": "мужской", "quality": "medium", "locale": "ru_RU", "language": "русский"},
+    "denis": {"name": "Денис", "gender": "мужской", "quality": "medium", "locale": "ru_RU", "language": "русский"},
+    "dmitri": {"name": "Дмитрий", "gender": "мужской", "quality": "medium", "locale": "ru_RU", "language": "русский"},
+}
 _voice_job = {"running": False, "message": "", "downloaded": 0, "total": 0, "error": False}
 _voice_lock = threading.Lock()
 
@@ -40,12 +47,54 @@ def _hf_voice_items(path):
     return result
 
 
+def _piper_paths(voice_id):
+    if voice_id not in PIPER_VOICES:
+        raise ValueError("Неизвестный голос Piper")
+    voice = PIPER_VOICES[voice_id]
+    quality, locale = voice["quality"], voice["locale"]
+    base = f"{locale[:2]}/{locale}/{voice_id}/{quality}/{locale}-{voice_id}-{quality}.onnx"
+    return base, base + ".json"
+
+
+def _piper_model_path(voice_id):
+    voice = PIPER_VOICES[voice_id]
+    quality, locale = voice["quality"], voice["locale"]
+    filename = f"{locale}-{voice_id}-{quality}.onnx"
+    bundled = panel.BASE_DIR / "tts_models" / filename
+    installed = panel.BASE_DIR / "tts_models" / "piper-store" / voice_id / filename
+    return bundled if bundled.is_file() else installed
+
+
+def _piper_catalog():
+    try:
+        config = json.loads((panel.BASE_DIR / "config.json").read_text(encoding="utf-8-sig"))
+        active = _root_path(config.get("piper_model", "")).resolve()
+        friday_active = _root_path(config.get("friday_piper_model", config.get("piper_model", ""))).resolve()
+        rvc_enabled = bool(config.get("rvc_enabled", False))
+        friday_rvc_enabled = bool(config.get("friday_rvc_enabled", config.get("rvc_enabled", False)))
+        piper_enabled = str(config.get("tts_engine", "piper")).lower() == "piper"
+        friday_piper_enabled = str(config.get("friday_tts_engine", config.get("tts_engine", "piper"))).lower() == "piper"
+    except (OSError, ValueError, TypeError):
+        active, friday_active, rvc_enabled, friday_rvc_enabled = Path(), Path(), False, False
+        piper_enabled, friday_piper_enabled = False, False
+    result = []
+    for voice_id, info in PIPER_VOICES.items():
+        model = _piper_model_path(voice_id)
+        result.append({"id": voice_id, **info, "installed": model.is_file(),
+                       "active": model.is_file() and model.resolve() == active and piper_enabled and not rvc_enabled,
+                       "active_friday": model.is_file() and model.resolve() == friday_active and friday_piper_enabled and not friday_rvc_enabled})
+    return result
+
+
 def _installed_voices():
     root = panel.BASE_DIR / "rvc_models" / "store"
     active_model = ""
+    friday_active_model = ""
     try:
         config_path = panel.BASE_DIR / "config.json"
-        active_model = str(json.loads(config_path.read_text(encoding="utf-8-sig")).get("rvc_model", ""))
+        config = json.loads(config_path.read_text(encoding="utf-8-sig"))
+        active_model = str(config.get("rvc_model", ""))
+        friday_active_model = str(config.get("friday_rvc_model", ""))
     except (OSError, ValueError, TypeError):
         pass
     voices = []
@@ -56,6 +105,7 @@ def _installed_voices():
                 item["directory"] = str(metadata.parent)
                 item["installed"] = True
                 item["active"] = str(metadata.parent / str(item.get("model", ""))) == active_model
+                item["active_friday"] = str(metadata.parent / str(item.get("model", ""))) == friday_active_model
                 voices.append(item)
             except (OSError, ValueError, TypeError):
                 continue
@@ -67,7 +117,7 @@ def _root_path(value):
     return path if path.is_absolute() else panel.BASE_DIR / path
 
 
-def _optimize_rvc(model, index):
+def _optimize_rvc(model, index, target="jarvis"):
     """Benchmark isolated CPU/DirectML bridges and save the fastest valid mode."""
     config_path = panel.BASE_DIR / "config.json"
     config = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.exists() else {}
@@ -181,12 +231,13 @@ def _optimize_rvc(model, index):
     benchmark.unlink(missing_ok=True)
     if best is None: raise RuntimeError("RVC не прошёл проверку ни на CPU, ни через DirectML")
     config = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.exists() else {}
-    config["rvc_cpu_threads"] = best[1]
-    config["rvc_device"] = best[2]
-    config["rvc_benchmark_seconds"] = round(best[0], 2)
-    config["rvc_f0_method"] = best[3]
-    config["rvc_index_rate"] = best[4]
-    config["rvc_filter_radius"] = best[5]
+    prefix = "friday_" if target == "friday" else ""
+    config[prefix + "rvc_cpu_threads"] = best[1]
+    config[prefix + "rvc_device"] = best[2]
+    config[prefix + "rvc_benchmark_seconds"] = round(best[0], 2)
+    config[prefix + "rvc_f0_method"] = best[3]
+    config[prefix + "rvc_index_rate"] = best[4]
+    config[prefix + "rvc_filter_radius"] = best[5]
     atomic_json(config_path, config)
     return best
 
@@ -196,6 +247,95 @@ def voice_store(request):
     if operation == "status":
         with _voice_lock:
             return dict(_voice_job)
+    if operation == "piper_list":
+        return {"voices": _piper_catalog(), "lite": is_lite(panel.BASE_DIR)}
+    if operation == "piper_select":
+        voice_id = str(request.get("voice_id", "")).strip().lower()
+        target = str(request.get("target", "jarvis")).strip().lower()
+        if target not in {"jarvis", "friday"}:
+            raise ValueError("Неизвестный получатель голоса")
+        if target == "friday" and is_lite(panel.BASE_DIR):
+            raise ValueError("В EFREN Lite доступен только Джарвис")
+        model = _piper_model_path(voice_id)
+        config_file = Path(str(model) + ".json")
+        if not model.is_file() or not config_file.is_file():
+            raise ValueError("Сначала установите этот голос Piper")
+        config_path = panel.BASE_DIR / "config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.exists() else {}
+        if target == "friday":
+            config.update({"friday_tts_engine": "piper", "friday_piper_model": str(model),
+                           "friday_rvc_enabled": False, "friday_rvc_required": False,
+                           "friday_rvc_model": "", "friday_rvc_index": ""})
+        else:
+            config.update({"tts_engine": "piper", "piper_model": str(model),
+                           "rvc_enabled": False, "rvc_required": False,
+                           "rvc_model": "", "rvc_index": ""})
+        atomic_json(config_path, config)
+        recipient = "Пятницы" if target == "friday" else "Джарвиса"
+        return {"message": f"Для {recipient} выбран быстрый голос «{PIPER_VOICES[voice_id]['name']}». Перезапустите помощника."}
+    if operation == "piper_install":
+        voice_id = str(request.get("voice_id", "")).strip().lower()
+        target = str(request.get("target", "jarvis")).strip().lower()
+        if target not in {"jarvis", "friday"} or (target == "friday" and is_lite(panel.BASE_DIR)):
+            raise ValueError("Этот получатель голоса недоступен")
+        remote_model, remote_config = _piper_paths(voice_id)
+        recipient_target = target
+        with _voice_lock:
+            if _voice_job["running"]:
+                raise ValueError("Другой голос уже скачивается")
+            _voice_job.update(running=True, message="Подготовка загрузки Piper…",
+                              downloaded=0, total=0, error=False)
+
+        def download_piper():
+            temporary = None
+            try:
+                directory = remote_model.rsplit("/", 1)[0]
+                url = (f"https://huggingface.co/api/models/{HF_PIPER_REPO}/tree/main/"
+                       f"{urllib.parse.quote(directory, safe='/')}?limit=100")
+                req = urllib.request.Request(url, headers={"User-Agent": "EFREN-Lite/0.1.9"})
+                with urllib.request.urlopen(req, timeout=20) as response:
+                    listing = json.loads(response.read().decode("utf-8"))
+                by_path = {str(item.get("path", "")): item for item in listing if item.get("type") == "file"}
+                chosen = [remote_model, remote_config]
+                if not all(path in by_path for path in chosen):
+                    raise ValueError("Hugging Face не вернул полный комплект голоса")
+                total = sum(int(by_path[path].get("size", 0) or 0) for path in chosen)
+                if total <= 0 or total > 150 * 1024 * 1024:
+                    raise ValueError("Недопустимый размер модели Piper")
+                target_dir = panel.BASE_DIR / "tts_models" / "piper-store" / voice_id
+                temporary = target_dir.with_name(target_dir.name + ".download")
+                if temporary.exists(): shutil.rmtree(temporary)
+                temporary.mkdir(parents=True)
+                downloaded = 0
+                with _voice_lock:
+                    _voice_job.update(total=total, message="Скачивание быстрого голоса Piper…")
+                for remote_path in chosen:
+                    destination = temporary / Path(remote_path).name
+                    download_url = (f"https://huggingface.co/{HF_PIPER_REPO}/resolve/main/"
+                                    f"{urllib.parse.quote(remote_path, safe='/')}?download=true")
+                    request_file = urllib.request.Request(download_url, headers={"User-Agent": "EFREN-Lite/0.1.9"})
+                    digest = hashlib.sha256()
+                    with urllib.request.urlopen(request_file, timeout=60) as response, destination.open("wb") as output:
+                        while True:
+                            chunk = response.read(1024 * 1024)
+                            if not chunk: break
+                            output.write(chunk); digest.update(chunk); downloaded += len(chunk)
+                            with _voice_lock: _voice_job["downloaded"] = downloaded
+                    expected = str((by_path[remote_path].get("lfs") or {}).get("oid", "")).lower()
+                    if expected and digest.hexdigest().lower() != expected:
+                        raise ValueError("SHA-256 загруженного файла Piper не совпал")
+                if target_dir.exists(): shutil.rmtree(target_dir)
+                os.replace(temporary, target_dir); temporary = None
+                voice_store({"operation": "piper_select", "voice_id": voice_id, "target": recipient_target})
+                with _voice_lock:
+                    _voice_job.update(running=False, downloaded=total, error=False,
+                                      message=f"Голос «{PIPER_VOICES[voice_id]['name']}» установлен.")
+            except Exception as exc:
+                if temporary and temporary.exists(): shutil.rmtree(temporary, ignore_errors=True)
+                with _voice_lock:
+                    _voice_job.update(running=False, message="Ошибка: " + str(exc), error=True)
+        threading.Thread(target=download_piper, name="PiperVoiceDownload", daemon=True).start()
+        return {"message": "Скачивание Piper начато."}
     if operation == "installed":
         return {"voices": _installed_voices()}
     if operation == "list":
@@ -211,9 +351,15 @@ def voice_store(request):
             })
         files = [entry for entry in entries if entry["type"] == "file"]
         return {"path": path, "entries": entries,
+                "lite": is_lite(panel.BASE_DIR),
                 "installable": any(x["name"].lower().endswith(".pth") for x in files),
                 "installed": any(x.get("source_path") == path for x in _installed_voices())}
     if operation == "select":
+        target_name = str(request.get("target", "jarvis")).strip().lower()
+        if target_name not in {"jarvis", "friday"}:
+            raise ValueError("Неизвестный получатель голоса")
+        if target_name == "friday" and is_lite(panel.BASE_DIR):
+            raise ValueError("В EFREN Lite доступен только Джарвис")
         directory = Path(str(request.get("directory", ""))).resolve()
         store = (panel.BASE_DIR / "rvc_models" / "store").resolve()
         if store not in directory.parents:
@@ -228,25 +374,28 @@ def voice_store(request):
         lite = is_lite(panel.BASE_DIR)
         full_cuda_python = panel.BASE_DIR / "rvc_env" / "Scripts" / "python.exe"
         selected_python = (panel.BASE_DIR / "runtime" / "python" / "python.exe") if lite or not full_cuda_python.is_file() else full_cuda_python
-        config.update({"rvc_enabled": True, "rvc_required": False,
-                       "rvc_root": str(panel.BASE_DIR / "rvc_engine"),
-                       "rvc_python": str(selected_python),
-                       "rvc_model": str(model), "rvc_index": str(index) if index.is_file() else "",
-                       "rvc_timeout_seconds": 10})
+        prefix = "friday_" if target_name == "friday" else ""
+        config.update({prefix + "rvc_enabled": True, prefix + "rvc_required": False,
+                       prefix + "rvc_model": str(model),
+                       prefix + "rvc_index": str(index) if index.is_file() else "",
+                       prefix + "rvc_timeout_seconds": 10})
+        config.update({"rvc_root": str(panel.BASE_DIR / "rvc_engine"),
+                       "rvc_python": str(selected_python)})
         atomic_json(config_path, config)
         with _voice_lock:
             if _voice_job["running"]: raise ValueError("Дождитесь завершения текущей операции")
             _voice_job.update(running=True, message="Подготовка автоматической проверки RVC…", downloaded=0, total=0, error=False)
         def optimize():
             try:
-                elapsed, threads, device, method, index_rate, filter_radius = _optimize_rvc(model, index)
+                elapsed, threads, device, method, index_rate, filter_radius = _optimize_rvc(model, index, target_name)
                 label = ("CUDA" if device == "cuda" else
                          "видеоядро / DirectML" if device == "directml" else f"CPU, {threads} потоков")
                 with _voice_lock: _voice_job.update(running=False, downloaded=_voice_job["total"],
                     message=f"Голос выбран: {label} · {method.upper()} · index {index_rate:.2f} · filter {filter_radius} ({elapsed:.1f} с). Перезапустите помощника.", error=False)
             except Exception as exc:
                 config = json.loads(config_path.read_text(encoding="utf-8-sig"))
-                config["rvc_enabled"] = False; atomic_json(config_path, config)
+                config[("friday_" if target_name == "friday" else "") + "rvc_enabled"] = False
+                atomic_json(config_path, config)
                 with _voice_lock: _voice_job.update(running=False, message="RVC отключён: " + str(exc), error=True)
         threading.Thread(target=optimize, name="RvcAutoBenchmark", daemon=True).start()
         return {"message": "Голос выбран. Сравниваю скорость CPU и видеоядра…", "optimizing": True}
@@ -262,7 +411,11 @@ def voice_store(request):
             if directory in active.parents:
                 config["rvc_enabled"] = False
                 config["rvc_model"] = ""; config["rvc_index"] = ""
-                atomic_json(config_path, config)
+            friday_active = Path(str(config.get("friday_rvc_model", ""))).resolve()
+            if directory in friday_active.parents:
+                config["friday_rvc_enabled"] = False
+                config["friday_rvc_model"] = ""; config["friday_rvc_index"] = ""
+            atomic_json(config_path, config)
         except (OSError, ValueError, TypeError):
             pass
         shutil.rmtree(directory)
@@ -270,6 +423,9 @@ def voice_store(request):
     if operation != "install":
         raise ValueError("Неизвестная операция магазина голосов")
     path = _voice_path(request.get("path", ""))
+    install_target = str(request.get("target", "jarvis")).strip().lower()
+    if install_target not in {"jarvis", "friday"} or (install_target == "friday" and is_lite(panel.BASE_DIR)):
+        raise ValueError("Этот получатель голоса недоступен")
     with _voice_lock:
         if _voice_job["running"]:
             raise ValueError("Другой голос уже скачивается")
@@ -320,7 +476,9 @@ def voice_store(request):
             atomic_json(temporary / "voice.json", metadata)
             if target.exists(): shutil.rmtree(target)
             os.replace(temporary, target); temporary = None
-            with _voice_lock: _voice_job.update(running=False, message="Голос установлен.", downloaded=total, error=False)
+            with _voice_lock:
+                _voice_job.update(running=False, message="Голос установлен; запускаю проверку RVC…", downloaded=total, error=False)
+            voice_store({"operation": "select", "directory": str(target), "target": install_target})
         except Exception as exc:
             if temporary and temporary.exists(): shutil.rmtree(temporary, ignore_errors=True)
             with _voice_lock: _voice_job.update(running=False, message="Ошибка: " + str(exc), error=True)

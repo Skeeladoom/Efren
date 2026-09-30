@@ -565,7 +565,7 @@ class LocalRouter:
 
     @classmethod
     def _collect_automatic_command_words(cls):
-        """Collect words from router constants without maintaining another list."""
+        """Collect command vocabulary without pulling in replies/help text."""
         words = set()
 
         def visit(value):
@@ -582,14 +582,22 @@ class LocalRouter:
         for name, value in vars(cls).items():
             if name.isupper():
                 visit(value)
-        # A number of compact routes keep their phrases directly beside the
-        # handler instead of in class constants. Include their string literals
-        # too, so adding a new route automatically expands the morphology.
+        # Some compact routes keep command phrases directly in comparisons.
+        # Only collect literals used as comparison operands. Walking every
+        # string literal also included replies, errors and documentation and
+        # produced a huge, largely useless automatic dictionary.
         try:
             tree = ast.parse(inspect.getsource(cls))
             for node in ast.walk(tree):
-                if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                    visit(node.value)
+                if isinstance(node, ast.Compare):
+                    visit(node.left.value if isinstance(node.left, ast.Constant) else None)
+                    for comparator in node.comparators:
+                        if isinstance(comparator, ast.Constant):
+                            visit(comparator.value)
+                        elif isinstance(comparator, (ast.Tuple, ast.List, ast.Set)):
+                            for item in comparator.elts:
+                                if isinstance(item, ast.Constant):
+                                    visit(item.value)
         except (OSError, TypeError, IndentationError, SyntaxError):
             pass
         return words

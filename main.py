@@ -1402,8 +1402,11 @@ class Jarvis:
                 answer,
             )
 
+        # Keyboard commands are deliberately silent. Keep that decision local
+        # to this one result instead of representing it as a generic blank
+        # answer, which made the behaviour difficult to diagnose.
         return (
-            "answer",
+            "silent" if route.kind == "press_key" and not answer else "answer",
             answer,
         )
 

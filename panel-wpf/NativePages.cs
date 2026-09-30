@@ -295,16 +295,19 @@ namespace Efren.Panel
         readonly ProgressBar progress = new ProgressBar { Height = 8, Minimum = 0, Maximum = 1, Margin = new Thickness(0, 4, 8, 12), Visibility = Visibility.Collapsed };
         readonly DispatcherTimer timer = new DispatcherTimer();
         string current = "";
+        bool showingPiper = false;
+        bool liteEdition = false;
 
         public VoiceStorePage(Backend backend)
         {
             this.backend = backend;
             var body = new StackPanel();
             Content = new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-            body.Children.Add(PageUI.Text("Голоса загружаются напрямую из публичного репозитория Hugging Face. EFREN сам положит .pth и .index в нужную папку и проверит SHA-256.", true));
+            body.Children.Add(PageUI.Text("Быстрые голоса Piper работают почти мгновенно на процессоре. RVC-голоса требуют тяжёлого преобразования. Файлы загружаются из Hugging Face с проверкой SHA-256.", true));
             var toolbar = new WrapPanel(); body.Children.Add(toolbar);
             toolbar.Children.Add(PageUI.Button("← Назад", async delegate { await Back(); }));
             toolbar.Children.Add(PageUI.Button("Обновить", async delegate { await Load(current); }));
+            toolbar.Children.Add(PageUI.Button("Быстрые Piper", LoadPiper));
             toolbar.Children.Add(PageUI.Button("Установленные голоса", LoadInstalled));
             body.Children.Add(location); body.Children.Add(progress); body.Children.Add(status); body.Children.Add(rows);
             timer.Interval = TimeSpan.FromMilliseconds(700);
@@ -322,11 +325,22 @@ namespace Efren.Panel
             await Load(slash < 0 ? "" : current.Substring(0, slash));
         }
 
+        string ChooseTarget()
+        {
+            if (liteEdition) return "jarvis";
+            var answer = MessageBox.Show(Window.GetWindow(this),
+                "Кому назначить голос?\n\nДа — Джарвису\nНет — Пятнице\nОтмена — ничего не менять",
+                "Получатель голоса", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+            return answer == MessageBoxResult.Yes ? "jarvis" : answer == MessageBoxResult.No ? "friday" : null;
+        }
+
         async Task Load(string path)
         {
+            showingPiper = false;
             rows.Children.Clear(); status.Text = "Загрузка каталога…";
             try {
                 var data = (Dictionary<string, object>)await backend.Call("voice_store", "operation", "list", "path", path);
+                liteEdition = PageUI.Flag(data, "lite");
                 current = PageUI.Str(data, "path");
                 location.Text = "Hugging Face / " + (string.IsNullOrEmpty(current) ? "RVC-Models" : current);
                 if (PageUI.Flag(data, "installable")) {
@@ -349,9 +363,10 @@ namespace Efren.Panel
 
         async Task Install()
         {
+            string targetName = ChooseTarget(); if (targetName == null) return;
             var answer = MessageBox.Show(Window.GetWindow(this), "Скачать файлы голоса из текущей папки? Размер может превышать 100 МБ.", "Установка голоса", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
             if (answer != MessageBoxResult.Yes) return;
-            var data = (Dictionary<string, object>)await backend.Call("voice_store", "operation", "install", "path", current);
+            var data = (Dictionary<string, object>)await backend.Call("voice_store", "operation", "install", "path", current, "target", targetName);
             status.Text = PageUI.Str(data, "message"); progress.Value = 0; progress.Visibility = Visibility.Visible; timer.Start();
         }
 
@@ -365,23 +380,28 @@ namespace Efren.Panel
                 status.Text = PageUI.Str(data, "message") + (total > 0 ? "  " + Math.Round(done / 1048576) + " / " + Math.Round(total / 1048576) + " МБ" : "");
                 if (!PageUI.Flag(data, "running")) {
                     string finalMessage = status.Text;
-                    timer.Stop(); progress.Visibility = Visibility.Collapsed; await LoadInstalled(); status.Text = finalMessage;
+                    timer.Stop(); progress.Visibility = Visibility.Collapsed;
+                    if (showingPiper) await LoadPiper(); else await LoadInstalled();
+                    status.Text = finalMessage;
                 }
             } catch (Exception ex) { timer.Stop(); status.Text = ex.Message; }
         }
 
         async Task LoadInstalled()
         {
+            showingPiper = false;
             rows.Children.Clear(); location.Text = "Установленные голоса"; status.Text = "Загрузка…";
             var data = (Dictionary<string, object>)await backend.Call("voice_store", "operation", "installed");
             int count = 0;
             foreach (var voice in PageUI.Array(data["voices"]).Cast<Dictionary<string, object>>()) {
                 string name = PageUI.Str(voice, "name"), directory = PageUI.Str(voice, "directory");
                 var card = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
-                card.Children.Add(PageUI.Text(name + (PageUI.Flag(voice, "active") ? "  ·  выбран" : ""))); card.Children.Add(PageUI.Text(PageUI.Str(voice, "source_path"), true));
+                string assigned = PageUI.Flag(voice, "active") && PageUI.Flag(voice, "active_friday") ? " · Джарвис и Пятница" : PageUI.Flag(voice, "active") ? " · Джарвис" : PageUI.Flag(voice, "active_friday") ? " · Пятница" : "";
+                card.Children.Add(PageUI.Text(name + assigned)); card.Children.Add(PageUI.Text(PageUI.Str(voice, "source_path"), true));
                 var actions = new WrapPanel(); card.Children.Add(actions);
-                actions.Children.Add(PageUI.Button("Выбрать для помощника", async delegate {
-                    var result = (Dictionary<string, object>)await backend.Call("voice_store", "operation", "select", "directory", directory);
+                actions.Children.Add(PageUI.Button("Выбрать голос", async delegate {
+                    string targetName = ChooseTarget(); if (targetName == null) return;
+                    var result = (Dictionary<string, object>)await backend.Call("voice_store", "operation", "select", "directory", directory, "target", targetName);
                     status.Text = PageUI.Str(result, "message");
                     if (PageUI.Flag(result, "optimizing")) { progress.Value = 0; progress.Visibility = Visibility.Visible; timer.Start(); }
                 }));
@@ -393,6 +413,38 @@ namespace Efren.Panel
             }
             if (count == 0) rows.Children.Add(PageUI.Text("Пока ничего не установлено. Нажмите «Назад», чтобы открыть каталог.", true));
             status.Text = "Установлено голосов: " + count;
+        }
+
+        async Task LoadPiper()
+        {
+            showingPiper = true; rows.Children.Clear(); location.Text = "Быстрые голоса Piper";
+            status.Text = "Загрузка каталога…";
+            try {
+                var data = (Dictionary<string, object>)await backend.Call("voice_store", "operation", "piper_list");
+                liteEdition = PageUI.Flag(data, "lite");
+                int count = 0;
+                foreach (var voice in PageUI.Array(data["voices"]).Cast<Dictionary<string, object>>()) {
+                    string id = PageUI.Str(voice, "id"), name = PageUI.Str(voice, "name");
+                    bool installed = PageUI.Flag(voice, "installed"), active = PageUI.Flag(voice, "active"), activeFriday = PageUI.Flag(voice, "active_friday");
+                    var card = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
+                    string assigned = active && activeFriday ? " · Джарвис и Пятница" : active ? " · Джарвис" : activeFriday ? " · Пятница" : "";
+                    card.Children.Add(PageUI.Text(name + " · " + PageUI.Str(voice, "gender") + assigned));
+                    card.Children.Add(PageUI.Text("Piper ONNX · " + PageUI.Str(voice, "language") + " · быстро на CPU", true));
+                    var actions = new WrapPanel(); card.Children.Add(actions);
+                    if (!installed) actions.Children.Add(PageUI.Button("Скачать (~63 МБ)", async delegate {
+                        string targetName = ChooseTarget(); if (targetName == null) return;
+                        var result = (Dictionary<string, object>)await backend.Call("voice_store", "operation", "piper_install", "voice_id", id, "target", targetName);
+                        status.Text = PageUI.Str(result, "message"); progress.Value = 0; progress.Visibility = Visibility.Visible; timer.Start();
+                    }));
+                    else actions.Children.Add(PageUI.Button((active || activeFriday) ? "Назначить ещё" : "Выбрать", async delegate {
+                        string targetName = ChooseTarget(); if (targetName == null) return;
+                        var result = (Dictionary<string, object>)await backend.Call("voice_store", "operation", "piper_select", "voice_id", id, "target", targetName);
+                        status.Text = PageUI.Str(result, "message"); await LoadPiper();
+                    }));
+                    rows.Children.Add(card); count++;
+                }
+                status.Text = "Доступно быстрых голосов: " + count;
+            } catch (Exception ex) { status.Text = "Не удалось открыть каталог Piper: " + ex.Message; }
         }
     }
 

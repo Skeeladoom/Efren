@@ -1257,12 +1257,12 @@ def extended_voice_command(command, user_id=""):
         return True, ("Сейчас в голосовом канале: " + ", ".join(names)) if names else "Сейчас голосовой канал пуст."
     if re.search(r"\b(?:проверь\s+себя|диагностик[ау]|состояние\s+систем)\b", normalized):
         stt_ok = stt_health_ok()
-        tts_ok = _friday_tts is not None and bool(getattr(_friday_tts, "rvc_enabled", False))
+        tts_ok = _friday_tts is not None and bool(getattr(_friday_tts, "enabled", False))
         wake_ok = _wake_detector_model is not None
         return True, (
             "Проверка завершена. Распознавание: " + ("работает" if stt_ok else "ошибка")
             + ", быстрый слух: " + ("работает" if wake_ok else "ошибка")
-            + ", голос Пуджа: " + ("работает" if tts_ok else "ошибка") + "."
+            + ", голос Пятницы: " + ("работает" if tts_ok else "ошибка") + "."
         )
     if re.search(r"\b(?:что|ч[её])\s+(?:ты\s+)?(?:услышал[ау]?|распознал[ау]?)\b", normalized):
         return True, f"До этой команды я услышала: {_last_heard_text}." if _last_heard_text else "У меня пока нет предыдущей распознанной фразы."
@@ -2163,6 +2163,10 @@ def _init_friday_tts_unlocked(config):
         voice_config["tts_engine"] = str(
             config.get("friday_tts_engine", config.get("tts_engine", "piper"))
         )
+        for key in ("piper_exe", "piper_model"):
+            friday_key = f"friday_{key}"
+            if friday_key in config:
+                voice_config[key] = config[friday_key]
         for key in (
             "silero_tts_python",
             "silero_tts_bridge",
@@ -2202,7 +2206,14 @@ def _init_friday_tts_unlocked(config):
         voice_config["rvc_index"] = str(
             config.get("friday_rvc_index", config.get("rvc_index", ""))
         )
-        voice_config["rvc_required"] = True
+        for key in ("rvc_cpu_threads", "rvc_device", "rvc_f0_method", "rvc_timeout_seconds"):
+            friday_key = f"friday_{key}"
+            if friday_key in config:
+                voice_config[key] = config[friday_key]
+        # A deleted or broken RVC voice must not make Friday completely mute.
+        # Silero/Piper remains a safe local fallback until another voice is
+        # selected in the store.
+        voice_config["rvc_required"] = bool(config.get("friday_rvc_required", False))
         voice_config["rvc_index_rate"] = float(
             config.get(
                 "friday_rvc_index_rate",
@@ -2226,11 +2237,6 @@ def _init_friday_tts_unlocked(config):
             _friday_tts = None
             diag("FRIDAY_TTS_DISABLED", force=True)
             return False
-        if not bool(getattr(_friday_tts, "rvc_enabled", False)):
-            _friday_tts.stop()
-            _friday_tts = None
-            raise RuntimeError("Голос Пуджа недоступен; резервный голос для Пятницы запрещён")
-
         # Warm RVC before the worker advertises readiness. The Node ready gate
         # discards startup conversation, so the first real command does not
         # pay the expensive Pudge/CUDA initialization cost.

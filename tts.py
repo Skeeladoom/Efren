@@ -310,6 +310,16 @@ class LocalTTS:
 
     def _resolve_output_device(self, sounddevice):
         wanted = self.tts_device_name.casefold().strip()
+        # With no explicit override, follow the output device currently
+        # selected in Windows/PortAudio instead of guessing by list order.
+        if not wanted and self.tts_device is None:
+            default_device = sounddevice.default.device
+            try:
+                return default_device[1]
+            except (IndexError, KeyError, TypeError):
+                return default_device
+        if not wanted:
+            return self.tts_device
         candidates = []
         for index, device in enumerate(sounddevice.query_devices()):
             name = str(device.get("name", ""))
@@ -480,7 +490,7 @@ class LocalTTS:
         if not self.rvc_enabled or not all(path.exists() for path in required):
             self.rvc_enabled = False
             self._write_rvc_status("piper", "RVC выключен или не установлен")
-            print("[TTS] RVC-голос JARVIS недоступен, используется Piper.")
+            print(f"[TTS] RVC-голос недоступен, используется базовый движок {self.tts_engine.title()}.")
             return
         self._write_rvc_status("loading", "Загрузка выбранного RVC-голоса")
         environment = os.environ.copy()

@@ -79,7 +79,9 @@ def ensure_auto_dictionary(path, words):
     """Persist/reuse morphology for the current built-in and user commands."""
     path = Path(path)
     clean_words = sorted({normalize_word(word) for word in words if WORD_RE.fullmatch(normalize_word(word))})
-    digest = hashlib.sha256("\n".join(clean_words).encode("utf-8")).hexdigest()
+    # Include the collector format version so an older oversized cache is
+    # rebuilt even when the resulting source word set happens to be unchanged.
+    digest = hashlib.sha256(("collector-v3\n" + "\n".join(clean_words)).encode("utf-8")).hexdigest()
     cache_key = str(path.resolve())
     cached = _auto_cache.get(cache_key)
     if cached and cached[0] == digest:
@@ -105,7 +107,12 @@ def ensure_auto_dictionary(path, words):
     document = {"_source_hash": digest, **result}
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # This is a generated cache, not a user-edited dictionary. Keep it compact
+    # so hundreds of lexemes do not turn into tens of thousands of text lines.
+    temporary.write_text(
+        json.dumps(document, ensure_ascii=False, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
     os.replace(temporary, path)
     _auto_cache[cache_key] = (digest, result)
     return result

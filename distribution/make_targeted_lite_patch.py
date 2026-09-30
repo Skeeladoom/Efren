@@ -1,4 +1,4 @@
-"""Build the 0.1.9 targeted update without repacking unchanged AI models."""
+"""Build the 0.1.10 targeted update without repacking unchanged AI models."""
 import hashlib
 import json
 import zipfile
@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent / "release-lite-clean"
 OUTPUT = Path(__file__).resolve().parent / "EFREN-Lite-Patch.zip"
 FILES = {
     "apply-lite-patch.ps1", "assistant_identity.py", "lite_policy.py", "main.py", "macro_runner.py",
-    "panel_backend.py", "panel_features.py", "router.py", "stt_variants.py",
+    "panel_backend.py", "panel_features.py", "router.py", "stt_variants.py", "tts.py",
     "tools.py", "lite-build.json", "rvc_engine/jarvis_bridge.py",
     "panel-wpf/App.cs", "panel-wpf/MainWindow.xaml",
     "panel-wpf/NativePages.cs", "panel-wpf/bin/FridayPanel.exe",
@@ -46,7 +46,7 @@ def build():
             selected.append(path)
     entries = [{"path": p.relative_to(ROOT).as_posix(), "size": p.stat().st_size,
                 "sha256": sha256(p)} for p in sorted(selected)]
-    manifest = {"format": "EFREN-LITE-PATCH-1", "to_version": "0.1.9", "files": entries}
+    manifest = {"format": "EFREN-LITE-PATCH-1", "to_version": "0.1.10", "files": entries}
     with zipfile.ZipFile(OUTPUT, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         archive.writestr("patch-manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
         for path in selected:
